@@ -1,0 +1,7 @@
+[Unit]
+Description=Analyze yearly Reddit Radar signals
+[Timer]
+OnCalendar=*-01-01 00:10:00
+Persistent=true
+[Install]
+WantedBy=timers.target

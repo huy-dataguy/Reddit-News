@@ -1,0 +1,7 @@
+[Unit]
+Description=Analyze Reddit Radar signals every three hours
+[Timer]
+OnCalendar=0/3:10:00
+Persistent=true
+[Install]
+WantedBy=timers.target

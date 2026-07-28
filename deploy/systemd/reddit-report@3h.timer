@@ -1,0 +1,7 @@
+[Unit]
+Description=Generate a three-hour Reddit Radar briefing
+[Timer]
+OnCalendar=0/3:20:00
+Persistent=true
+[Install]
+WantedBy=timers.target

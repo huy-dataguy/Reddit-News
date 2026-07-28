@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate V2 analysis and sourced digest for Reddit Radar (%i)
+After=network-online.target reddit-crawl.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py pipeline --period %i --enrich-limit 0 --analysis-limit 0 --digest-limit 20 --provider gemini
+TimeoutStartSec=30min
+Nice=10

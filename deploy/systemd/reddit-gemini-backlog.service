@@ -1,0 +1,12 @@
+[Unit]
+Description=Drain grounded Reddit discussions through Gemini V2
+After=network-online.target reddit-crawl.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py gemini-backlog --limit 5 --comment-limit 120 --retry-after-hours 6 --max-attempts 3 --output reports/operations
+TimeoutStartSec=30min
+Nice=10

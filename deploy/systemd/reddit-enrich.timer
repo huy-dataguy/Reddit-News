@@ -1,0 +1,11 @@
+[Unit]
+Description=Drain Reddit evidence enrichment backlog in bounded batches
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=10min
+Persistent=true
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

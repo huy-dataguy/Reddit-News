@@ -1,0 +1,11 @@
+[Unit]
+Description=Process the Gemini analysis backlog every ten minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitInactiveSec=10min
+Persistent=true
+RandomizedDelaySec=1min
+
+[Install]
+WantedBy=timers.target

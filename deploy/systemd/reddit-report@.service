@@ -1,0 +1,9 @@
+[Unit]
+Description=Generate Reddit Radar %i report
+After=reddit-crawl.service reddit-ai@%i.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py report --period %i --limit 20

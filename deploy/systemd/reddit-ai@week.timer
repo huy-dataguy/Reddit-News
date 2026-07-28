@@ -1,0 +1,9 @@
+[Unit]
+Description=Analyze weekly Reddit Radar signals
+
+[Timer]
+OnCalendar=Mon *-*-* 06:55:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
