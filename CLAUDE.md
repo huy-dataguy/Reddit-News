@@ -32,12 +32,23 @@ The agent-factory standards remain applicable:
 ## Commands
 
 ```bash
+# First-time Reddit Radar environment
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+
 # Full backend definition of done
 .venv/bin/python -m compileall -q reddit_crawler jobs web cli.py && \
   .venv/bin/python -m unittest discover -s tests
 
 # Frontend production build
 npm --prefix web/frontend run build
+
+# Local dashboard and scheduled collector entrypoints
+.venv/bin/python cli.py serve
+.venv/bin/python cli.py incremental
+
+# Export the top analyzed story to the sibling MediaWorkflow project
+.venv/bin/python cli.py story-export --top
 
 # Validate one bounded WorkForge run-spec
 ../workforge/.venv/bin/workforge validate workforge-specs/<spec>.md
@@ -53,6 +64,9 @@ npm --prefix web/frontend run build
 
 Use unittest, not pytest, for Reddit Radar tests. Default automated tests must not
 make real Reddit, OpenAI, Gemini, article-fetch or notification calls.
+
+The central CLI also contains bounded crawl/backfill/report/enrich/AI commands. Read
+`cli.py --help` rather than copying a stale command list into an agent change.
 
 ## WorkForge policy
 
@@ -80,6 +94,10 @@ make real Reddit, OpenAI, Gemini, article-fetch or notification calls.
   artifacts are runtime/generated data and must stay untracked.
 - Web stays read-only and bound to `127.0.0.1` for the current internal-only release.
 - Web requests do not call LLMs or fetch arbitrary source URLs.
+- The client ID embedded in code is only a public/testing fallback. Long-running
+  production collection needs the registered Reddit app configured through `.env`.
+- This project is a direct sibling of `agent-factory` and `workforge`; do not rewrite
+  those relative references as if Reddit lived under another parent directory.
 - Preserve unrelated user changes. Do not use destructive Git commands.
 
 ## Definition of done
