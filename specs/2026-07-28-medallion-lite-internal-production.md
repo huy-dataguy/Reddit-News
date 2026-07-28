@@ -1,7 +1,7 @@
 # Spec: Medallion-lite data pipeline cho internal production
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -504,6 +504,9 @@ và không stack work tiếp theo trên một gate đang đỏ.
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative spec for dependency-ordered,
+  bounded WorkForge packages; schema rehearsal remains copy-only and live migration
+  remains a manual R3 gate.
 - 2026-07-28 — Chọn Medallion-lite theo logical contracts, không chọn lakehouse stack;
   quy mô và team hiện tại phù hợp filesystem + SQLite + systemd hơn distributed tools.
 - 2026-07-28 — `fact_post`/`fact_comment` được phân loại là Silver; raw JSONL mới là
@@ -518,14 +521,15 @@ và không stack work tiếp theo trên một gate đang đỏ.
   shadow/parity trước switch, legacy giữ bảy ngày để rollback, không big-bang rewrite.
 - 2026-07-28 — DQ chia hard/soft: source integrity và atomic publish fail-closed;
   provider quota/coverage chỉ degraded để website tiếp tục phục vụ last-known-good.
-- 2026-07-28 — Plan hoàn chỉnh nhưng Status giữ `draft`; yêu cầu lập plan không đồng
-  nghĩa cho phép một supervisor tự chạy R3 hoặc thay đổi DB/systemd sống.
+- 2026-07-28 — Plan được giữ `draft` cho tới khi product owner phê duyệt; approval
+  hiện tại cho phép các package repository-only chạy theo dependency, không cho phép
+  supervisor tự chạy R3 hoặc thay đổi DB/systemd sống.
 
 ## Outcome (filled at Ship)
 
 Chưa build. Architecture, interfaces, work packages, gates, cutover và rollback plan
-đã hoàn chỉnh; structure gate phải pass trước khi đổi Status sang `approved`. Build và
-đặc biệt AC14 chỉ bắt đầu khi người dùng phê duyệt thực thi R3 rõ ràng.
+đã hoàn chỉnh và scope đã được product owner approved. Các package repository-only
+chạy theo dependency; AC14 chỉ bắt đầu khi named operator phê duyệt R3 rõ ràng.
 
 Dependent feature spec:
 

@@ -1,7 +1,7 @@
 # Spec: Reddit Radar internal-production program
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -210,6 +210,9 @@ Tier: R3 — chương trình bao gồm production data migration, systemd deploy
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved the authoritative 2026-07-28 program and
+  its dependency order for bounded WorkForge execution. R3/live gates remain named
+  human actions and are not delegated to autonomous lanes.
 - 2026-07-28 — Giữ monolith modular + SQLite trên một máy; đây là mức đúng cho internal production hiện tại.
 - 2026-07-28 — Medallion được triển khai “lite” bằng file/SQLite contracts và atomic publish, không đưa distributed data platform vào khi chưa có nhu cầu đo được.
 - 2026-07-28 — Một social-style feed là product surface chính; raw signal vẫn truy cập được như evidence tier, không là UI ngang hàng.

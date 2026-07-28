@@ -1,7 +1,7 @@
 # Spec: Single Intelligence Feed — rebuild web theo kiểu mạng xã hội nội bộ
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -520,6 +520,9 @@ xanh và record decision trước package kế; live rollout không song song co
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative consumer spec for execution
+  after `FeedStoryV1` and ServingRepository dependencies pass. Live cutover remains a
+  manual R3 gate.
 - 2026-07-28 — Một story chỉ có một feed item; ready brief > grounded analysis > raw
   signal. Data completeness nâng cấp card, không tạo thêm tab/item.
 - 2026-07-28 — Dùng social-feed interaction model nhưng không giả profile/like/comment;
@@ -532,11 +535,12 @@ xanh và record decision trước package kế; live rollout không song song co
   URL/bookmark/Back-Forward/scroll restoration rõ ràng và vận hành dễ đo.
 - 2026-07-28 — Không auto-scroll hoặc reorder khi publish mới; banner cho user chủ động
   refresh. Explicit page navigation lên feed heading, browser history khôi phục offset.
-- 2026-07-28 — Spec độc lập với data/content specs; Status draft không cấp quyền deploy
-  R3 hoặc tự động sửa live web.
+- 2026-07-28 — Spec độc lập với data/content specs; status `approved` cho phép build
+  theo dependency nhưng không cấp quyền deploy R3 hoặc tự động sửa live web.
 
 ## Outcome (filled at Ship)
 
 Chưa build. IA, feed/route/API contracts, responsive wireframes, component split,
 accessibility/performance budgets, acceptance criteria, rollout và rollback plan đã đầy
-đủ; chờ dependency approval trước khi đổi Status sang `approved`.
+đủ và scope đã approved; execution chờ ServingRepository, `FeedStoryV1` và brief
+dependencies đạt contract gate.

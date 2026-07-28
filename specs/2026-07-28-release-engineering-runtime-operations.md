@@ -1,7 +1,7 @@
 # Spec: Reproducible release và runtime operations cho internal production
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -171,6 +171,9 @@ Tier: R3 — thay đổi version/dependencies, file ownership, systemd, backup/r
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative spec for bounded WorkForge
+  implementation. Live systemd cutover, restore and production actions remain manual
+  R3 gates.
 - 2026-07-28 — Production nội bộ vẫn cần reproducibility và recovery; container/cloud CI không phải điều kiện bắt buộc.
 - 2026-07-28 — Backup dữ liệu và release identity là Wave 0, không chờ refactor medallion hoàn tất.
 - 2026-07-28 — Alert local structured là baseline; external notification là adapter opt-in.

@@ -1,7 +1,7 @@
 # Spec: Grounded Social Briefs — bài social công nghệ từ dữ liệu Radar
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -455,6 +455,9 @@ xanh trước package kế và ghi non-obvious decision vào spec.
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative consumer spec for execution
+  after its Medallion, enrichment and LLM-control dependencies pass. Live generation
+  and publishing remain gated.
 - 2026-07-28 — Feature là grounded data product, không phải prompt/UI shortcut; generate
   offline, quality gate rồi Gold publish, web chỉ read/copy.
 - 2026-07-28 — Dùng style chung `social_explainer_vi_v1`, mô phỏng cấu trúc hữu ích của
@@ -474,4 +477,4 @@ xanh trước package kế và ghi non-obvious decision vào spec.
 
 Chưa build. Product contract, editorial rubric, schema, grounding rules, API/UX,
 acceptance criteria, work packages, live content review và rollback plan đã được đặc tả;
-Status giữ `draft` cho tới khi dependency plan được phê duyệt thực thi.
+scope đã approved nhưng execution chờ Medallion, ingestion và LLM-control dependencies.

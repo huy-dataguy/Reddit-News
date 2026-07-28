@@ -19,6 +19,7 @@ internal-production target and dependency order are defined by
 - Central CLI: `cli.py`
 - Services and timers: `deploy/systemd/`
 - WorkForge binary: `../workforge/.venv/bin/workforge`
+- WorkForge operating guide: `docs/workforge.md`
 
 The agent-factory standards remain applicable:
 
@@ -53,9 +54,13 @@ npm --prefix web/frontend run build
 # Validate one bounded WorkForge run-spec
 ../workforge/.venv/bin/workforge validate workforge-specs/<spec>.md
 
+# Check the local WorkForge integration without starting a lane or service
+scripts/workforge-doctor.sh
+
 # Run only after the run-spec and budget are approved
 ../workforge/.venv/bin/workforge run workforge-specs/<spec>.md \
-  --dynamic --slug <slug> --max-usd <budget> --max-iterations <count>
+  --dynamic --slug <slug> --max-usd <budget> --max-seconds <seconds> \
+  --max-iterations <count>
 
 # Inspect lanes; WorkForge never auto-merges
 ../workforge/.venv/bin/workforge status --repo .
@@ -73,10 +78,20 @@ The central CLI also contains bounded crawl/backfill/report/enrich/AI commands. 
 - Product specs in `specs/` describe architecture, human approval and production
   gates. They are not passed directly to WorkForge.
 - WorkForge specs in `workforge-specs/` are small implementation units. They use a
-  numbered `## Acceptance Criteria` list and a runnable `Verify:` command for every
-  item.
+  numbered or checklist `## Acceptance Criteria` list and exactly one runnable
+  `Verify:` shell command for every item. `verify-manual:` belongs in a product spec,
+  not an autonomous run-spec, because current WorkForge rejects it.
 - Run one dependency-ready work package at a time. Do not turn the whole production
   program into one agent run.
+- Direct `--dynamic` execution is the default for Reddit Radar. Durable execution,
+  the Postgres queue and its dashboard are opt-in operator infrastructure; do not
+  initialize or daemonize them as part of an ordinary implementation lane.
+- Current durable and queued execution require static implementer/observer commands;
+  do not combine `--durable` with `--dynamic`, and do not submit a Reddit job until
+  its static adapter and budget have been explicitly reviewed.
+- A lane branches from committed `HEAD`; uncommitted base-repo changes are not copied
+  into its worktree. Run the doctor and commit the intended prerequisite state before
+  starting a lane.
 - Use unique slugs. Review `.workforge/worktrees/<slug>` and the observer evidence;
   merge manually only after the base-repo verification passes.
 - Never run an R3 live cutover, systemd deployment, provider-backed AI batch, DB

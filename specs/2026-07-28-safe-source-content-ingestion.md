@@ -1,7 +1,7 @@
 # Spec: Safe source-content ingestion và provenance
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -207,6 +207,9 @@ Tier: R3 — worker truy cập Internet từ máy production và lưu external c
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative spec for bounded WorkForge
+  packages. Automated tests stay fixture-only and live article fetching remains off
+  until its security gates pass.
 - 2026-07-28 — Article/technical report là enrichment source, không phải web-time fetch và không phải nguồn crawl rộng độc lập.
 - 2026-07-28 — HTTPS không đủ chứng minh an toàn; IP/redirect/size/MIME validation là mandatory P0.
 - 2026-07-28 — Source body là untrusted data, kể cả official domain; prompt instructions trong body không có quyền điều khiển agent/model.

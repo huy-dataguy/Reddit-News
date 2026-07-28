@@ -206,6 +206,19 @@ incremental; lịch sử dùng Arctic Shift:
 systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.timer
 ```
 
+## WorkForge
+
+Repo dùng WorkForge sibling cho các implementation lane nhỏ, có acceptance criteria
+chạy được bằng command và không tự merge. Kiểm tra integration cục bộ bằng:
+
+```bash
+scripts/workforge-doctor.sh
+```
+
+Quy trình, mode matrix và giới hạn production nằm tại
+[`docs/workforge.md`](docs/workforge.md); các run-spec nằm trong
+[`workforge-specs/`](workforge-specs/README.md).
+
 ## Cấu trúc chính
 
 ```text

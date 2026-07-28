@@ -1,7 +1,7 @@
 # Spec: LLM workload control, quota resilience và quality evaluation
 
 - Date: 2026-07-28
-- Status: draft
+- Status: approved
 
 ## Problem
 
@@ -211,6 +211,9 @@ Tier: R3 — sử dụng paid/external AI APIs, production content và quota/cos
 
 ## Decisions log (append during Build)
 
+- 2026-07-28 — Product owner approved this authoritative spec for bounded WorkForge
+  packages. Provider-backed batches and unbounded paid calls remain outside autonomous
+  execution.
 - 2026-07-28 — Quota là shared production resource; không để từng job tự retry và tự quyết budget.
 - 2026-07-28 — Current intelligence ưu tiên hơn lịch sử, nhưng weighted fairness ngăn backlog bị bỏ vĩnh viễn.
 - 2026-07-28 — Output schema-valid chưa đủ; claim/evidence/number/URL grounding và human faithfulness là release gate.
