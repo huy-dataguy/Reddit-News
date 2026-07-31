@@ -200,7 +200,36 @@ def _claim_candidates(
             available.append((sort_key, row, attempts + 1))
 
         available.sort(key=lambda item: item[0])
-        for _, row, attempt_count in available[:limit]:
+
+        # --- Fairness scheduler: prevent starvation of older articles --------
+        # Split batch into "recent" (<=24h) and "backlog" (>24h) slots so that
+        # even when many new articles arrive daily, old articles always get
+        # some processing capacity every cycle.
+        # recent_quota = ceil(60% of limit), backlog_quota = remaining slots.
+        import math
+        recent_cutoff = now - 86_400  # 24 hours ago
+        recent_quota = max(1, math.ceil(limit * 0.6))
+        backlog_quota = max(1, limit - recent_quota)
+
+        recent_pool = [item for item in available if float(item[1]["created_utc"] or 0) >= recent_cutoff]
+        backlog_pool = [item for item in available if float(item[1]["created_utc"] or 0) < recent_cutoff]
+
+        # Pick from each pool up to its quota; if one pool is exhausted,
+        # give leftover slots to the other pool.
+        chosen_recent = recent_pool[:recent_quota]
+        chosen_backlog = backlog_pool[:backlog_quota]
+        leftover_recent = recent_quota - len(chosen_recent)
+        leftover_backlog = backlog_quota - len(chosen_backlog)
+        if leftover_recent > 0:
+            chosen_backlog += backlog_pool[backlog_quota:backlog_quota + leftover_recent]
+        if leftover_backlog > 0:
+            chosen_recent += recent_pool[recent_quota:recent_quota + leftover_backlog]
+
+        selected = chosen_recent + chosen_backlog
+        selected = selected[:limit]  # never exceed the requested batch limit
+        # ---------------------------------------------------------------------
+
+        for _, row, attempt_count in selected:
             store.set_enrichment_state(
                 row["post_id"], LEDGER_KIND, "running",
                 _ledger_json(attempt_count, disposition="in_progress"),
