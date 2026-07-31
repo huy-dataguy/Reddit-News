@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 
 from reddit_crawler.contracts import BronzeEnvelopeV1, BronzeObject, validate_bronze_envelope
 
@@ -20,7 +20,7 @@ class BronzeWriter:
         if not records:
             raise ValueError("No records to write")
             
-        date_str = datetime.utcnow().strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
         rel_dir = Path(f"source={self.source}/entity={self.entity_type}/date={date_str}/run={self.run_id}")
         out_dir = self.bronze_root / rel_dir
@@ -45,7 +45,7 @@ class BronzeWriter:
                 
                 # Try to extract source_id and fetched_at
                 source_id = str(record.get("id", record.get("name", "unknown")))
-                fetched_at = float(record.get("fetched_at", datetime.utcnow().timestamp()))
+                fetched_at = float(record.get("fetched_at", datetime.now(timezone.utc).timestamp()))
                 
                 min_fetched_at = min(min_fetched_at, fetched_at)
                 max_fetched_at = max(max_fetched_at, fetched_at)
