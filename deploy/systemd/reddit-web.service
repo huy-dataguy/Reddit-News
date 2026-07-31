@@ -5,6 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+Environment="REDDIT_SERVING_MODE=mart"
 EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
 ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" -m uvicorn web.app:app --host 127.0.0.1 --port 8080
 Restart=on-failure
