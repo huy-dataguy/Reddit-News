@@ -1,7 +1,11 @@
 [Unit]
 Description=Analyze daily Reddit Radar signals
+
 [Timer]
+OnBootSec=3min
 OnCalendar=*-*-* 06:55:00
 Persistent=true
+
 [Install]
 WantedBy=timers.target
+

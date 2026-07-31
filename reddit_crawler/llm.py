@@ -949,12 +949,20 @@ def generate_digest(
             digest = local_digest(bundle, period)
             break
         try:
-            if candidate == "gemini":
-                digest, input_tokens, output_tokens = gemini_digest(bundle, period, gemini_agent)
-                selected, model = "gemini", gemini_agent
-            else:
-                digest, input_tokens, output_tokens = openai_digest(bundle, period, openai_model)
-                selected, model = "openai", openai_model
+            for attempt in range(1, 5):
+                try:
+                    if candidate == "gemini":
+                        digest, input_tokens, output_tokens = gemini_digest(bundle, period, gemini_agent)
+                        selected, model = "gemini", gemini_agent
+                    else:
+                        digest, input_tokens, output_tokens = openai_digest(bundle, period, openai_model)
+                        selected, model = "openai", openai_model
+                    break
+                except Exception as exc:
+                    if attempt < 4 and ("name resolution" in str(exc).lower() or "connection" in str(exc).lower() or "timeout" in str(exc).lower()):
+                        time.sleep(6)
+                    else:
+                        raise
             break
         except Exception as exc:
             if provider != "auto":
