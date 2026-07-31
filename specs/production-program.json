@@ -2,14 +2,14 @@
   "version": "1.0.0",
   "schema_version": 1,
   "generated_at": "2026-07-31T00:00:00Z",
-  "current_wave": 0,
+  "current_wave": 4,
   "specs": [
     {
       "id": "2026-07-28-internal-production-program",
       "path": "specs/2026-07-28-internal-production-program.md",
       "title": "Reddit Radar internal-production program",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R3",
       "release_wave": 0,
       "is_program_authority": true,
@@ -20,7 +20,7 @@
       "path": "specs/2026-07-28-medallion-lite-internal-production.md",
       "title": "Medallion-lite data pipeline",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R3",
       "release_wave": 1
     },
@@ -29,7 +29,7 @@
       "path": "specs/2026-07-28-release-engineering-runtime-operations.md",
       "title": "Reproducible release and runtime operations",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R3",
       "release_wave": 0
     },
@@ -38,7 +38,7 @@
       "path": "specs/2026-07-28-safe-source-content-ingestion.md",
       "title": "Safe source-content ingestion",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R2",
       "release_wave": 2
     },
@@ -47,7 +47,7 @@
       "path": "specs/2026-07-28-llm-workload-control-quality.md",
       "title": "LLM workload control and quality",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R2",
       "release_wave": 2
     },
@@ -56,7 +56,7 @@
       "path": "specs/2026-07-28-grounded-social-briefs.md",
       "title": "Grounded social briefs",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R2",
       "release_wave": 3
     },
@@ -65,7 +65,7 @@
       "path": "specs/2026-07-28-single-intelligence-feed-ui.md",
       "title": "Single intelligence feed UI",
       "date": "2026-07-28",
-      "status": "approved",
+      "status": "done",
       "risk_tier": "R2",
       "release_wave": 4
     },
