@@ -25,7 +25,7 @@ from reddit_crawler.storage import Storage
 log = logging.getLogger("jobs.gemini_backlog")
 
 LEDGER_KIND = "analysis_v2_gemini"
-MAX_BATCH_SIZE = 50
+MAX_BATCH_SIZE = 500
 _LEDGER_SCHEMA_VERSION = 1
 _USABLE_COMMENT = """
     EXISTS (
@@ -425,6 +425,8 @@ def run_gemini_backlog_batch(
 
     results: list[dict[str, Any]] = []
     succeeded = failed = newly_blocked = 0
+    quota_stopped = False
+    processed_ids: set[str] = set()
     ledger_store = Storage(db_path, None)
     try:
         for claim in claims:
@@ -441,6 +443,30 @@ def run_gemini_backlog_batch(
                     raise RuntimeError("strict provider contract returned a non-Gemini artifact")
             except Exception as exc:
                 metadata = _failure_metadata(exc, attempt_count)
+
+                # Quota/rate-limit: release this article back to pending and
+                # stop the batch immediately — no point hammering a dry quota.
+                if metadata["error_code"] in {"rate_limited", "quota_exhausted"}:
+                    ledger_store.set_enrichment_state(
+                        post_id, LEDGER_KIND, "pending",
+                        _ledger_json(max(0, attempt_count - 1), disposition="quota_released"),
+                    )
+                    ledger_store.commit()
+                    # Release all remaining unclaimed articles back to pending.
+                    for remaining_claim in claims:
+                        if remaining_claim["post_id"] not in processed_ids and remaining_claim["post_id"] != post_id:
+                            ledger_store.set_enrichment_state(
+                                remaining_claim["post_id"], LEDGER_KIND, "pending",
+                                _ledger_json(0, disposition="quota_released"),
+                            )
+                    ledger_store.commit()
+                    quota_stopped = True
+                    log.warning(
+                        "Gemini quota/rate-limit hit on post %s (code=%s) — stopping batch, %d articles released.",
+                        post_id, metadata["error_code"], len(claims) - len(processed_ids),
+                    )
+                    break
+
                 terminal = attempt_count >= max_attempts
                 status = "blocked" if terminal else "error"
                 ledger_store.set_enrichment_state(
@@ -473,6 +499,7 @@ def run_gemini_backlog_batch(
             )
             ledger_store.commit()
             succeeded += 1
+            processed_ids.add(post_id)
             results.append({
                 "post_id": post_id,
                 "status": "success",
@@ -501,6 +528,7 @@ def run_gemini_backlog_batch(
             "succeeded": succeeded,
             "failed": failed,
             "newly_blocked": preblocked + newly_blocked,
+            "quota_stopped": quota_stopped,
             "started_at": started_at,
             "completed_at": completed_at,
             "results": results,

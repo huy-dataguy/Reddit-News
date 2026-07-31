@@ -143,7 +143,44 @@ class GeminiBacklogTests(unittest.TestCase):
         self.assertEqual(result["queue"]["eligible"], 3)
         self.assertEqual(result["queue"]["completed"], 3)
 
-    def test_failure_backoff_blocking_and_new_work_progress_without_overwriting_local(self) -> None:
+    def test_quota_stop_releases_articles_back_to_pending(self) -> None:
+        """Rate-limit / quota errors stop the batch and release articles to pending."""
+        store = Storage(str(self.db), None)
+        _seed_post(store, "quota-hit", score=100)
+        _seed_post(store, "not-reached", score=10)
+        store.commit()
+        store.close()
+
+        calls: list[str] = []
+
+        def generate(db_path: str, post_id: str, *, provider: str, comment_limit: int):
+            calls.append(post_id)
+            raise RuntimeError("rate limit 429")
+
+        with patch("jobs.gemini_backlog.generate_post_analysis_v2", side_effect=generate):
+            result = run_gemini_backlog_batch(
+                str(self.db), limit=10, retry_after_hours=6, max_attempts=3,
+                output_dir=self.reports,
+            )
+
+        # Batch stops at first quota hit — only the quota-hit article is tried
+        self.assertTrue(result["quota_stopped"])
+        self.assertEqual(result["succeeded"], 0)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(len(calls), 1)  # stopped immediately
+        # Both articles released back to pending, attempt counts unchanged
+        conn = sqlite3.connect(f"file:{self.db.resolve()}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT status FROM enrichment_state WHERE post_id='quota-hit' AND kind=?",
+                (LEDGER_KIND,),
+            ).fetchone()
+            self.assertEqual(row[0], "pending")
+        finally:
+            conn.close()
+
+    def test_non_quota_failure_backoff_blocking_and_new_work_progress(self) -> None:
+        """Non-quota errors (quality gate, schema, etc.) use backoff + blocking."""
         store = Storage(str(self.db), None)
         _seed_post(store, "fails", score=100, comment_body="SECRET COMMENT BODY")
         _seed_post(store, "later", score=10)
@@ -157,7 +194,7 @@ class GeminiBacklogTests(unittest.TestCase):
             calls.append(post_id)
             self.assertEqual(provider, "gemini")
             if post_id == "fails":
-                raise RuntimeError("SECRET COMMENT BODY sk-test-secret rate limit 429")
+                raise RuntimeError("SECRET COMMENT BODY sk-test-secret quality gate rejected")
             _persist_analysis(db_path, post_id, "gemini")
             return {"post_id": post_id, "provider": "gemini"}
 
