@@ -519,43 +519,6 @@ def today(
     }
 
 
-@app.get("/api/feed")
-def single_feed(
-    period: str = Query("day"),
-    domain: str | None = Query(None),
-    q: str = Query("", max_length=200),
-    tier: str = Query("all"),  # all | knowledge | signal
-    limit: int = Query(20, ge=1, le=50),
-    offset: int = Query(0, ge=0),
-) -> dict[str, Any]:
-    """Single Intelligence Feed endpoint combining digests, knowledge analysis, and signals."""
-    if period not in PERIOD_SECONDS:
-        period = "day"
-    
-    # Use today's data as base
-    today_data = today(period=period, limit=10)
-    knowledge_data = _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset)
-    
-    items = knowledge_data.get("items", [])
-    if tier == "knowledge":
-        items = [i for i in items if i.get("is_ai")]
-    elif tier == "signal":
-        items = [i for i in items if not i.get("is_ai")]
-
-    return {
-        "period": period,
-        "generated_at": time.time(),
-        "status": today_data.get("status", "ready"),
-        "digest": today_data.get("digest"),
-        "top_trends": today_data.get("signals", [])[:5],
-        "total": len(items),
-        "limit": limit,
-        "offset": offset,
-        "domains": knowledge_data.get("domains", []),
-        "items": items,
-    }
-
-
 @app.get("/api/knowledge/feed")
 def knowledge_feed(
     domain: str | None = Query(None),
