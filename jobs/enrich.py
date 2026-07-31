@@ -48,19 +48,26 @@ def _short_id(value: str | None) -> str | None:
     return value.split("_", 1)[-1]
 
 
-def _comment_state(store: Storage, post_id: str) -> tuple[int, str | None, float | None]:
+def _comment_state(store: Storage, post_id: str) -> tuple[int, str | None, float | None, int]:
+    """Returns (db_comment_count, status, attempted_at, reddit_num_comments)."""
     row = store.conn.execute(
         """
         SELECT
             (SELECT COUNT(*) FROM fact_comment WHERE post_id=?) AS comment_count,
-            status,
-            attempted_at
+            es.status,
+            es.attempted_at,
+            COALESCE(p.num_comments, 0) AS reddit_num_comments
         FROM (SELECT 1)
-        LEFT JOIN enrichment_state ON post_id=? AND kind='comments'
+        LEFT JOIN enrichment_state es ON es.post_id=? AND es.kind='comments'
+        LEFT JOIN fact_post p ON p.post_id=?
         """,
-        (post_id, post_id),
+        (post_id, post_id, post_id),
     ).fetchone()
-    return int(row[0] or 0), row[1], row[2]
+    return int(row[0] or 0), row[1], row[2], int(row[3] or 0)
+
+
+_STALE_COMMENT_MULTIPLIER = 3.0   # re-enrich nếu Reddit có gấp 3x comment trong DB
+_STALE_COMMENT_MIN_GAP   = 10    # hoặc nếu tuyệt đối hơn 10 comment mới
 
 
 def _should_fetch_comments(
@@ -69,8 +76,16 @@ def _should_fetch_comments(
     attempted_at: float | None,
     *,
     retry_after_hours: float,
+    reddit_num_comments: int = 0,
 ) -> tuple[bool, str]:
     if status == "success":
+        # Re-enrich nếu bài đã viral sau khi crawl lần đầu:
+        # Reddit báo có nhiều comment hơn đáng kể so với DB.
+        gap = reddit_num_comments - comment_count
+        if gap >= _STALE_COMMENT_MIN_GAP and (
+            comment_count == 0 or reddit_num_comments >= comment_count * _STALE_COMMENT_MULTIPLIER
+        ):
+            return True, "stale-comments"
         return False, "already-complete"
     if status in {"empty", "error"} and attempted_at:
         retry_after = max(0.0, retry_after_hours) * 3600
@@ -149,11 +164,22 @@ def _backlog_candidates(
             AND COALESCE(resources.attempted_at, 0) <= ?
         )
     """
+    # Bài đã success nhưng Reddit báo có nhiều comment hơn đáng kể → stale
+    stale_comment_due = f"""
+        comments.status = 'success'
+        AND COALESCE(p.num_comments, 0) >= (
+            SELECT COUNT(*) FROM fact_comment fc WHERE fc.post_id = p.post_id
+        ) * {_STALE_COMMENT_MULTIPLIER}
+        AND COALESCE(p.num_comments, 0) - (
+            SELECT COUNT(*) FROM fact_comment fc WHERE fc.post_id = p.post_id
+        ) >= {_STALE_COMMENT_MIN_GAP}
+    """
     due_parts: list[str] = []
     due_parameters: list[float] = []
     if kind in {"comments", "both"}:
         due_parts.append(f"({comment_due})")
         due_parameters.append(retry_cutoff)
+        due_parts.append(f"({stale_comment_due})")
     if kind in {"resources", "both"}:
         due_parts.append(f"({resource_due})")
         due_parameters.append(retry_cutoff)
@@ -163,7 +189,7 @@ def _backlog_candidates(
         SELECT
             p.post_id,
             COALESCE(s.display_name, '') AS subreddit,
-            CASE WHEN {comment_due} THEN 1 ELSE 0 END AS comment_due,
+            CASE WHEN ({comment_due}) OR ({stale_comment_due}) THEN 1 ELSE 0 END AS comment_due,
             CASE WHEN {resource_due} THEN 1 ELSE 0 END AS resource_due
         FROM fact_post p
         LEFT JOIN dim_subreddit s ON s.subreddit_id = p.subreddit_id
@@ -269,12 +295,13 @@ def run_enrichment(
                 if backlog and not item.get("_comment_due"):
                     stats["comment_posts_skipped"] += 1
                 else:
-                    count, status, attempted_at = _comment_state(store, post_id)
+                    count, status, attempted_at, reddit_num = _comment_state(store, post_id)
                     should_fetch, reason = _should_fetch_comments(
                         count,
                         status,
                         attempted_at,
                         retry_after_hours=retry_after_hours,
+                        reddit_num_comments=reddit_num,
                     )
                     if not should_fetch:
                         stats["comment_posts_skipped"] += 1
