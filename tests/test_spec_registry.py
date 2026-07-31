@@ -84,7 +84,7 @@ class SpecRegistryTests(unittest.TestCase):
         self.assertIn("external_blockers", data)
         
         self.assertEqual(data["schema_version"], 1)
-        self.assertEqual(len(data["specs"]), 12)
+        self.assertEqual(len(data["specs"]), 13)
         
         for spec in data["specs"]:
             self.assertIn("id", spec)

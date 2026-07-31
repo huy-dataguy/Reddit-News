@@ -70,6 +70,15 @@
       "release_wave": 4
     },
     {
+      "id": "2026-07-31-dual-stream-ingestion-and-resilience",
+      "path": "specs/2026-07-31-dual-stream-ingestion-and-resilience.md",
+      "title": "Dual-stream ingestion and boot resilience",
+      "date": "2026-07-31",
+      "status": "done",
+      "risk_tier": "R2",
+      "release_wave": 4
+    },
+    {
       "id": "2026-07-26-evidence-to-intelligence-mvp",
       "path": "specs/2026-07-26-evidence-to-intelligence-mvp.md",
       "title": "Evidence-to-Intelligence MVP",

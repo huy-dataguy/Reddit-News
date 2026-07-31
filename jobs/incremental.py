@@ -68,16 +68,12 @@ def run_incremental(
 ) -> dict[str, int]:
     """Trả về {'new_posts', 'comments', 'refreshed'}."""
     total_new = total_cmt = 0
+    sort_modes = ["new", "hot"] if sort == "both" else [sort]
+
+    import time
+    new_24h_cutoff = time.time() - 86_400  # 24 hour cutoff for /new stream
 
     for sub in subs:
-        scope = f"sub:{sub}:{sort}"
-        state = store.get_state(scope) or {}
-        bootstrap_scope = f"bootstrap:{scope}"
-        bootstrap = store.get_state(bootstrap_scope)
-        hwm = state.get("last_utc")                 # mốc lần trước
-        newest_utc = hwm
-        newest_name = state.get("last_fullname")
-
         try:
             sub_meta = crawl.fetch_subreddit(client, sub)
             store.upsert_subreddit(sub_meta)
@@ -86,57 +82,66 @@ def run_incremental(
             log.warning("bỏ qua r/%s: %s", sub, e)
             continue
 
-        n_new = 0
-        # --max-per-sub chỉ chia nhỏ lần bootstrap đầu. Mốc chính chỉ được lưu
-        # sau khi bootstrap hoàn tất, nên các trang cũ không bị bỏ vĩnh viễn.
-        start_after = bootstrap.get("last_fullname") if bootstrap else None
-        bootstrap_hwm = bootstrap.get("last_utc") if bootstrap else None
-        listing_limit = (max_per_sub + 1) if hwm is None and max_per_sub else None
-        listing = crawl.iter_listing(
-            client, sub, sort=sort, max_items=listing_limit, start_after=start_after,
-        )
-        has_more_bootstrap = False
-        last_processed_name = start_after
-        for post in listing:
-            if hwm is None and max_per_sub and n_new >= max_per_sub:
-                has_more_bootstrap = True
-                break
-            cu = post.get("created_utc") or 0
-            if hwm is not None and cu <= hwm:
-                break                                # tới vùng cũ -> dừng sub này
-            store.upsert_post(post, subreddit_id=sub_id)
-            store.snapshot_metrics(post)
-            store.write_raw("post", [post])
-            n_new += 1
-            last_processed_name = post.get("name")
-            if newest_utc is None or cu > newest_utc:
-                newest_utc, newest_name = cu, post.get("name")
-            if bootstrap_hwm is None or cu > bootstrap_hwm:
-                bootstrap_hwm = cu
+        for sort_mode in sort_modes:
+            scope = f"sub:{sub}:{sort_mode}"
+            state = store.get_state(scope) or {}
+            bootstrap_scope = f"bootstrap:{scope}"
+            bootstrap = store.get_state(bootstrap_scope)
+            hwm = state.get("last_utc")                 # mốc lần trước
+            newest_utc = hwm
+            newest_name = state.get("last_fullname")
 
-            if comments:
-                try:
-                    _, cmts = crawl.fetch_post_with_comments(
-                        client, post["id"], subreddit=sub,
-                        sort="top", depth=depth, resolve_more=resolve_more)
-                    for c in cmts:
-                        store.upsert_comment(c, post_id=post["id"], subreddit_id=sub_id)
-                    store.write_raw("comment", cmts)
-                    total_cmt += len(cmts)
-                except Exception as e:
-                    log.warning("comment lỗi ở post %s: %s", post.get("id"), e)
+            n_new = 0
+            start_after = bootstrap.get("last_fullname") if bootstrap else None
+            bootstrap_hwm = bootstrap.get("last_utc") if bootstrap else None
+            listing_limit = (max_per_sub + 1) if hwm is None and max_per_sub else None
+            listing = crawl.iter_listing(
+                client, sub, sort=sort_mode, max_items=listing_limit, start_after=start_after,
+            )
+            has_more_bootstrap = False
+            last_processed_name = start_after
+            for post in listing:
+                if hwm is None and max_per_sub and n_new >= max_per_sub:
+                    has_more_bootstrap = True
+                    break
+                cu = post.get("created_utc") or 0
+                if sort_mode == "new" and cu > 86_400 and cu < new_24h_cutoff:
+                    break                            # /new stream strictly bounded to last 24h
+                if hwm is not None and cu <= hwm and sort_mode == "new":
+                    break                            # tới vùng cũ của /new -> dừng
 
-        if hwm is None and max_per_sub and has_more_bootstrap:
-            store.set_state(bootstrap_scope, bootstrap_hwm, last_processed_name)
-            log.info("r/%s bootstrap tạm dừng tại %s; lần sau sẽ nối tiếp", sub,
-                     last_processed_name)
-        else:
-            final_hwm = bootstrap_hwm if hwm is None and max_per_sub else newest_utc
-            store.set_state(scope, final_hwm, newest_name)
-            store.delete_state(bootstrap_scope)
-        store.commit()
-        total_new += n_new
-        log.info("r/%-20s +%d post mới", sub, n_new)
+                store.upsert_post(post, subreddit_id=sub_id)
+                store.snapshot_metrics(post)
+                store.write_raw("post", [post])
+                n_new += 1
+                last_processed_name = post.get("name")
+                if newest_utc is None or cu > newest_utc:
+                    newest_utc, newest_name = cu, post.get("name")
+                if bootstrap_hwm is None or cu > bootstrap_hwm:
+                    bootstrap_hwm = cu
+
+                if comments:
+                    try:
+                        _, cmts = crawl.fetch_post_with_comments(
+                            client, post["id"], subreddit=sub,
+                            sort="top", depth=depth, resolve_more=resolve_more)
+                        for c in cmts:
+                            store.upsert_comment(c, post_id=post["id"], subreddit_id=sub_id)
+                        store.write_raw("comment", cmts)
+                        total_cmt += len(cmts)
+                    except Exception as e:
+                        log.warning("comment lỗi ở post %s: %s", post.get("id"), e)
+
+            if hwm is None and max_per_sub and has_more_bootstrap:
+                store.set_state(bootstrap_scope, bootstrap_hwm, last_processed_name)
+                log.info("r/%s [%s] bootstrap tạm dừng tại %s; lần sau sẽ nối tiếp", sub, sort_mode, last_processed_name)
+            else:
+                final_hwm = bootstrap_hwm if hwm is None and max_per_sub else newest_utc
+                store.set_state(scope, final_hwm, newest_name)
+                store.delete_state(bootstrap_scope)
+            store.commit()
+            total_new += n_new
+            log.info("r/%-20s [%s] +%d post", sub, sort_mode, n_new)
 
     # ---- refresh metrics cho post gần đây (velocity) ----
     refreshed = 0
@@ -157,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Incremental crawl (cron) cho danh sách sub")
     ap.add_argument("--subs-file", default=str(DEFAULT_SUBS), help="file danh sách sub")
     ap.add_argument("--only", help="ghi đè: danh sách sub ngăn cách bằng dấu phẩy")
-    ap.add_argument("--sort", default="new", choices=["new"])
+    ap.add_argument("--sort", default="both", choices=["new", "hot", "both"])
     ap.add_argument("--comments", action="store_true", help="lấy luôn cây comment (nặng)")
     ap.add_argument("--depth", type=int, default=None)
     ap.add_argument("--no-more", action="store_true", help="không bung comment ẩn")
