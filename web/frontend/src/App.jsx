@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BookOpen,
-  Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
-  ExternalLink, FileText, Gauge, Globe2, Layers3, Lightbulb,
-  Menu, MessageCircle, Radio, Search, ShieldCheck, Sparkles, Target,
+  Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
+  Copy, Check, ExternalLink, Eye, EyeOff, FileText, Filter, Gauge, Globe2, Layers3, Lightbulb,
+  Menu, MessageCircle, Radio, Search, ShieldCheck, Sparkles, Star, Target,
   ThumbsUp, TrendingUp, X,
 } from 'lucide-react'
 import { getJSON, withQuery } from './api'
@@ -49,8 +49,9 @@ function navigate(path) {
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-function AppLink({ href, children, className = '', onNavigate, ...props }) {
+function AppLink({ href, children, className = '', onNavigate, onClick, ...props }) {
   return <a href={href} className={className} onClick={event => {
+    onClick?.(event)
     if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
       event.preventDefault()
       navigate(href)
@@ -69,18 +70,23 @@ function Logo() {
 const NAV_ITEMS = [
   ['today', '/', 'Hôm nay', Sparkles],
   ['knowledge', '/knowledge', 'Kho tri thức', BrainCircuit],
+  ['saved', '/saved', 'Đã lưu', Star],
   ['radar', '/radar', 'Radar', Radio],
 ]
 
-function Header({ active, health }) {
+function Header({ active, health, savedCount = 0 }) {
   const [menuOpen, setMenuOpen] = useState(false)
   return <header className="topbar">
     <div className="topbar-inner">
       <Logo />
       <nav className="main-nav" aria-label="Điều hướng chính">
-        {NAV_ITEMS.map(([key, href, label, Icon]) => <AppLink
-          key={key} href={href} className={active === key ? 'active' : ''}
-        ><Icon size={15} />{label}</AppLink>)}
+        {NAV_ITEMS.map(([key, href, label, Icon]) => (
+          <AppLink key={key} href={href} className={active === key ? 'active' : ''}>
+            <Icon size={15} />
+            {label}
+            {key === 'saved' && savedCount > 0 && <span className="nav-badge">{savedCount}</span>}
+          </AppLink>
+        ))}
       </nav>
       <div className="top-actions">
         <span className={`health-pill ${health?.status || 'unknown'}`}>
@@ -96,6 +102,7 @@ function Header({ active, health }) {
       {NAV_ITEMS.map(([key, href, label, Icon]) => <AppLink key={key} href={href}
         className={active === key ? 'active' : ''} onNavigate={() => setMenuOpen(false)}>
         <Icon size={17} />{label}
+        {key === 'saved' && savedCount > 0 && <span className="nav-badge">{savedCount}</span>}
       </AppLink>)}
     </nav>}
   </header>
@@ -163,26 +170,75 @@ function analysisView(item) {
   }
 }
 
-function AnalysisCard({ item, featured = false }) {
+function computePostValue(item) {
+  const score = item.score || item.latest_score || 0
+  const comments = item.num_comments || item.comment_count || item.latest_comments || 0
+  const trend = item.trend_score || 0
+  const hasAI = item.is_ai ? 50 : 0
+  return score * 0.4 + comments * 2.5 + trend * 1.2 + hasAI
+}
+
+function CardActionsBar({ item, isSaved, toggleSave, isRead, markRead }) {
+  const [copied, setCopied] = useState(false)
   const view = analysisView(item)
-  return <article className={`analysis-card ${featured ? 'featured' : ''}`}>
+
+  const handleCopy = (e) => {
+    e.stopPropagation()
+    const text = `📌 ${view.title}\n\n${view.summary || ''}\n\nNguồn: ${item.reddit_url || 'Reddit Radar'}`
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return <div className="card-action-bar">
+    <button
+      className={`card-action-btn ${isSaved ? 'saved' : ''}`}
+      onClick={(e) => { e.stopPropagation(); toggleSave(item.post_id) }}
+      title={isSaved ? 'Đã lưu (Bấm để bỏ)' : 'Lưu xem sau'}
+    >
+      <Star size={14} className={isSaved ? 'fill-star' : ''} />
+      <span>{isSaved ? 'Đã lưu' : 'Lưu'}</span>
+    </button>
+
+    <button className="card-action-btn" onClick={handleCopy} title="Sao chép tóm tắt">
+      {copied ? <Check size={14} className="green-icon" /> : <Copy size={14} />}
+      <span>{copied ? 'Đã chép' : 'Copy'}</span>
+    </button>
+
+    {isRead && <span className="read-tag" title="Bạn đã đọc bài này"><CheckCircle2 size={12} /> Đã xem</span>}
+  </div>
+}
+
+function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, markRead }) {
+  const view = analysisView(item)
+  return <article className={`analysis-card ${featured ? 'featured' : ''} ${isRead ? 'read-card' : ''}`}>
     <div className="card-topline">
       <span className="domain-label"><DomainIcon domain={item.domain_id} size={14} />
         {item.domain_name || 'Khác'}
       </span>
       <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />
     </div>
-    <h3><AppLink href={`/post/${item.post_id}`}>{view.title}</AppLink></h3>
+    <h3>
+      <AppLink href={`/post/${item.post_id}`} onClick={() => markRead(item.post_id)}>
+        {view.title}
+      </AppLink>
+    </h3>
     {view.summary && <p className="card-summary">{view.summary}</p>}
     {view.keyPoints[0] && <div className="key-preview">
       <Lightbulb size={15} /><span>{view.keyPoints[0].text}</span>
     </div>}
+    
+    <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
+
     <footer className="card-footer">
       <span>r/{item.subreddit || '?'}</span>
       <span><ThumbsUp size={13} /> {compactNumber.format(item.score || 0)}</span>
       <span><MessageCircle size={13} /> {compactNumber.format(item.num_comments || item.comment_count || 0)}</span>
       <span>{relativeTime(item.generated_at)}</span>
-      <AppLink href={`/post/${item.post_id}`} className="text-link">Xem bằng chứng <ArrowRight size={14} /></AppLink>
+      <AppLink href={`/post/${item.post_id}`} className="text-link" onClick={() => markRead(item.post_id)}>
+        Xem bằng chứng <ArrowRight size={14} />
+      </AppLink>
     </footer>
   </article>
 }
@@ -225,26 +281,89 @@ function DigestPanel({ digest, provisional, message }) {
   </section>
 }
 
-function TodayPage({ health }) {
+function SmartFilterToolbar({ minComments, setMinComments, hideRead, setHideRead, sortBy, setSortBy }) {
+  return <div className="smart-toolbar">
+    <div className="toolbar-left">
+      <button
+        className={`toolbar-pill ${minComments === 2 ? 'active' : ''}`}
+        onClick={() => setMinComments(minComments === 2 ? 0 : 2)}
+      >
+        <MessageCircle size={13} />
+        <span>Ưu tiên bài >2 bình luận</span>
+      </button>
+
+      <button
+        className={`toolbar-pill ${hideRead ? 'active' : ''}`}
+        onClick={() => setHideRead(!hideRead)}
+      >
+        {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
+        <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
+      </button>
+    </div>
+
+    <div className="toolbar-right">
+      <span className="sort-label"><Filter size={12} /> Sắp xếp:</span>
+      <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="sort-select">
+        <option value="value">⭐ Giá trị cao (Vote + Comment)</option>
+        <option value="comments">💬 Nhiều bình luận nhất</option>
+        <option value="score">👍 Điểm vote cao nhất</option>
+        <option value="time">🕐 Mới nhất</option>
+      </select>
+    </div>
+  </div>
+}
+
+function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [minComments, setMinComments] = useState(2)
+  const [hideRead, setHideRead] = useState(false)
+  const [sortBy, setSortBy] = useState('value')
+
   const load = () => {
     setLoading(true); setError('')
-    getJSON('/api/today?period=day&limit=8').then(setData)
+    getJSON('/api/today?period=day&limit=15').then(setData)
       .catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(load, [])
 
+  const processedHighlights = useMemo(() => {
+    if (!data?.highlights) return []
+    let list = [...data.highlights]
+
+    // 1. Filter out 0-1 comment posts if minComments active
+    if (minComments > 0) {
+      list = list.filter(i => (i.num_comments || i.comment_count || 0) >= minComments)
+    }
+
+    // 2. Filter out read posts if hideRead active
+    if (hideRead) {
+      list = list.filter(i => !readSet.has(i.post_id))
+    }
+
+    // 3. Sort
+    list.sort((a, b) => {
+      if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
+      if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
+      if (sortBy === 'score') return (b.score || 0) - (a.score || 0)
+      if (sortBy === 'time') return (b.generated_at || 0) - (a.generated_at || 0)
+      return 0
+    })
+
+    return list
+  }, [data, minComments, hideRead, sortBy, readSet])
+
   if (loading) return <Loading label="Đang chuẩn bị bản tin hôm nay…" />
   if (error) return <ErrorState message={error} retry={load} />
   const counts = health?.counts || {}
+
   return <>
     <section className="today-hero">
       <div className="hero-copy">
         <span className="overline"><i /> TECHNOLOGY INTELLIGENCE · HÔM NAY</span>
         <h1>Điều gì đáng biết,<br /><em>trước khi bạn bắt đầu ngày mới?</em></h1>
-        <p>Reddit Radar theo dõi thảo luận, thu thập bằng chứng và đưa phần đáng đọc nhất lên trước.</p>
+        <p>Reddit Radar ưu tiên các bài viết có nhiều lượt thảo luận, xếp hạng theo giá trị thực tế và hỗ trợ lưu bài đọc sau.</p>
         <span className="hero-time"><Clock3 size={15} /> Dữ liệu thu thập {relativeTime(health?.stages?.collector?.last_success_at)}</span>
       </div>
       <div className="hero-metrics">
@@ -254,21 +373,64 @@ function TodayPage({ health }) {
         <Metric icon={FileText} value={fullNumber.format(counts.analyses_local || 0)} label="trích xuất local" tone="violet" />
       </div>
     </section>
+
     <DigestPanel digest={data?.digest} provisional={data?.provisional} message={data?.message} />
+
     <section className="section-heading">
-      <div><span className="eyebrow">ĐỌC TRƯỚC</span><h2>Những phân tích đáng chú ý</h2>
-        <p>Ưu tiên kết quả có LLM và bằng chứng đã crawl; bản local luôn được ghi nhãn riêng.</p></div>
+      <div>
+        <span className="eyebrow">ĐỌC TRƯỚC</span>
+        <h2>Những phân tích đáng chú ý</h2>
+        <p>Xếp hạng theo điểm tương tác, số bình luận thảo luận và bằng chứng thực tế.</p>
+      </div>
       <AppLink href="/knowledge" className="button secondary">Mở kho tri thức <ArrowRight size={15} /></AppLink>
     </section>
-    {data?.highlights?.length
-      ? <div className="highlight-grid">{data.highlights.map((item, index) => <AnalysisCard
-        item={item} featured={index === 0} key={item.post_id} />)}</div>
-      : <div className="empty-panel"><BrainCircuit size={28} /><h3>Pipeline chưa có phân tích</h3><p>Các tín hiệu thô vẫn có ở Radar.</p></div>}
+
+    <SmartFilterToolbar
+      minComments={minComments} setMinComments={setMinComments}
+      hideRead={hideRead} setHideRead={setHideRead}
+      sortBy={sortBy} setSortBy={setSortBy}
+    />
+
+    {processedHighlights.length ? (
+      <div className="highlight-grid">
+        {processedHighlights.map((item, index) => (
+          <AnalysisCard
+            item={item}
+            featured={index === 0}
+            key={item.post_id}
+            isSaved={savedSet.has(item.post_id)}
+            toggleSave={toggleSave}
+            isRead={readSet.has(item.post_id)}
+            markRead={markRead}
+          />
+        ))}
+      </div>
+    ) : (
+      <div className="empty-panel">
+        <BrainCircuit size={28} />
+        <h3>Không có bài viết phù hợp bộ lọc</h3>
+        <p>Thử tắt ẩn bài đã đọc hoặc mở rộng bộ lọc số bình luận.</p>
+      </div>
+    )}
+
     <section className="today-signals">
-      <div className="section-heading compact"><div><span className="eyebrow">RADAR LIVE</span><h2>Tín hiệu đang chuyển động</h2></div>
-        <AppLink href="/radar" className="text-link">Xem toàn bộ <ArrowRight size={14} /></AppLink></div>
-      <div className="mini-signal-list">{(data?.signals || []).slice(0, 6).map((item, index) => <MiniSignal
-        item={item} rank={index + 1} key={item.post_id} />)}</div>
+      <div className="section-heading compact">
+        <div><span className="eyebrow">RADAR LIVE</span><h2>Tín hiệu đang chuyển động</h2></div>
+        <AppLink href="/radar" className="text-link">Xem toàn bộ <ArrowRight size={14} /></AppLink>
+      </div>
+      <div className="mini-signal-list">
+        {(data?.signals || []).slice(0, 6).map((item, index) => (
+          <MiniSignal
+            item={item}
+            rank={index + 1}
+            key={item.post_id}
+            isSaved={savedSet.has(item.post_id)}
+            toggleSave={toggleSave}
+            isRead={readSet.has(item.post_id)}
+            markRead={markRead}
+          />
+        ))}
+      </div>
     </section>
   </>
 }
@@ -292,13 +454,16 @@ function DomainChips({ domains, selected, setSelected, total }) {
   </div>
 }
 
-function KnowledgePage() {
+function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState('all')
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [minComments, setMinComments] = useState(2)
+  const [hideRead, setHideRead] = useState(false)
+  const [sortBy, setSortBy] = useState('value')
   const limit = 12
 
   useEffect(() => {
@@ -309,81 +474,217 @@ function KnowledgePage() {
     }, 180)
     return () => window.clearTimeout(timer)
   }, [query, domain, offset])
+
   useEffect(() => setOffset(0), [query, domain])
+
+  const filteredItems = useMemo(() => {
+    if (!data?.items) return []
+    let list = [...data.items]
+
+    if (minComments > 0) {
+      list = list.filter(i => (i.num_comments || i.comment_count || 0) >= minComments)
+    }
+    if (hideRead) {
+      list = list.filter(i => !readSet.has(i.post_id))
+    }
+
+    list.sort((a, b) => {
+      if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
+      if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
+      if (sortBy === 'score') return (b.score || 0) - (a.score || 0)
+      if (sortBy === 'time') return (b.generated_at || 0) - (a.generated_at || 0)
+      return 0
+    })
+
+    return list
+  }, [data, minComments, hideRead, sortBy, readSet])
 
   return <>
     <section className="page-intro">
       <div><span className="eyebrow">EVIDENCE → INTELLIGENCE</span><h1>Kho tri thức</h1>
-        <p>Mỗi bài chỉ xuất hiện một lần: kết quả LLM được ưu tiên, sau đó mới tới bản local; trong cùng nhóm, V2 đứng trước V1. Mở bài để kiểm tra claim và nguồn bình luận.</p></div>
+        <p>Mỗi bài được làm sạch, ưu tiên bài viết có thảo luận sôi nổi (>2 bình luận). Bạn có thể bấm lưu bài để đọc lại sau.</p></div>
       <SearchBox value={query} setValue={setQuery} placeholder="Tìm chủ đề, subreddit, công nghệ…" />
     </section>
+
     <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={data?.total || 0} />
-    <div className="result-line"><span><b>{data?.total || 0}</b> bản phân tích phù hợp</span>
-      <span>LLM được xếp trước · local vẫn truy cập được</span></div>
+
+    <SmartFilterToolbar
+      minComments={minComments} setMinComments={setMinComments}
+      hideRead={hideRead} setHideRead={setHideRead}
+      sortBy={sortBy} setSortBy={setSortBy}
+    />
+
+    <div className="result-line">
+      <span><b>{filteredItems.length}</b> phân tích phù hợp</span>
+      <span>Xếp hạng theo giá trị & bình luận</span>
+    </div>
+
     {error ? <ErrorState message={error} /> : loading ? <Loading label="Đang lọc kho tri thức…" />
-      : data?.items?.length ? <>
-        <div className="knowledge-grid">{data.items.map(item => <AnalysisCard item={item} key={item.post_id} />)}</div>
+      : filteredItems.length ? <>
+        <div className="knowledge-grid">
+          {filteredItems.map(item => (
+            <AnalysisCard
+              item={item}
+              key={item.post_id}
+              isSaved={savedSet.has(item.post_id)}
+              toggleSave={toggleSave}
+              isRead={readSet.has(item.post_id)}
+              markRead={markRead}
+            />
+          ))}
+        </div>
         <div className="pagination">
           <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - limit))}><ArrowLeft size={14} /> Trước</button>
           <span>{offset + 1}–{Math.min(offset + data.count, data.total)} / {data.total}</span>
           <button disabled={!data.has_more} onClick={() => setOffset(offset + limit)}>Sau <ArrowRight size={14} /></button>
         </div>
-      </> : <div className="empty-panel"><Search size={28} /><h3>Không có kết quả phù hợp</h3><p>Thử từ khóa hoặc lĩnh vực khác.</p></div>}
+      </> : <div className="empty-panel"><Search size={28} /><h3>Không có kết quả phù hợp</h3><p>Thử đổi từ khóa, lĩnh vực hoặc tắt ẩn bài đã đọc.</p></div>}
   </>
 }
 
-function MiniSignal({ item, rank }) {
-  return <article className="mini-signal">
+function SavedPage({ savedSet, toggleSave, readSet, markRead }) {
+  const [data, setData] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    getJSON('/api/knowledge/feed?limit=100').then(res => {
+      const items = (res?.items || []).filter(item => savedSet.has(item.post_id))
+      setData(items)
+    }).finally(() => setLoading(false))
+  }, [savedSet])
+
+  return <>
+    <section className="page-intro">
+      <div>
+        <span className="eyebrow">DANH SÁCH CÁ NHÂN</span>
+        <h1>Bài viết đã lưu / Xem sau</h1>
+        <p>Tất cả các bài viết bạn bấm lưu xem sau hoặc yêu thích sẽ xuất hiện ở đây.</p>
+      </div>
+    </section>
+
+    {loading ? <Loading label="Đang danh sách bài đã lưu…" />
+      : data.length ? (
+        <div className="knowledge-grid">
+          {data.map(item => (
+            <AnalysisCard
+              item={item}
+              key={item.post_id}
+              isSaved={true}
+              toggleSave={toggleSave}
+              isRead={readSet.has(item.post_id)}
+              markRead={markRead}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="empty-panel">
+          <Star size={32} className="empty-star" />
+          <h3>Chưa có bài viết nào được lưu</h3>
+          <p>Bấm vào nút <b>Lưu</b> ở góc dưới bài viết bất kỳ để xem lại sau tại đây.</p>
+        </div>
+      )}
+  </>
+}
+
+function MiniSignal({ item, rank, isSaved, toggleSave, isRead, markRead }) {
+  return <article className={`mini-signal ${isRead ? 'read-card' : ''}`}>
     <span className="signal-rank">{String(rank).padStart(2, '0')}</span>
     <div className="signal-main">
       <div className="card-topline"><span className="domain-label"><DomainIcon domain={item.domain_id} size={13} /> {item.domain_name}</span>
         {item.provider && <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />}</div>
-      <h3><AppLink href={`/post/${item.post_id}`}>{item.analysis?.topic || item.title}</AppLink></h3>
-      <div className="signal-meta"><span>r/{item.subreddit}</span><span><ThumbsUp size={13} /> {compactNumber.format(item.latest_score || item.score || 0)}</span>
+      <h3>
+        <AppLink href={`/post/${item.post_id}`} onClick={() => markRead(item.post_id)}>
+          {item.analysis?.topic || item.title}
+        </AppLink>
+      </h3>
+      <div className="signal-meta">
+        <span>r/{item.subreddit}</span>
+        <span><ThumbsUp size={13} /> {compactNumber.format(item.latest_score || item.score || 0)}</span>
         <span><MessageCircle size={13} /> {compactNumber.format(item.latest_comments || item.num_comments || 0)}</span>
-        <span>{relativeTime(item.created_utc)}</span></div>
+        <span>{relativeTime(item.created_utc)}</span>
+        <button
+          className={`mini-bookmark-btn ${isSaved ? 'saved' : ''}`}
+          onClick={() => toggleSave(item.post_id)}
+          title={isSaved ? 'Đã lưu' : 'Lưu xem sau'}
+        >
+          <Star size={12} />
+        </button>
+      </div>
     </div>
     <div className="trend-box"><TrendingUp size={15} /><b>{item.trend_score ?? '—'}</b><small>trend</small></div>
   </article>
 }
 
-function RadarPage() {
+function RadarPage({ savedSet, toggleSave, readSet, markRead }) {
   const [period, setPeriod] = useState('day')
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState('all')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [minComments, setMinComments] = useState(2)
+
   const load = () => {
     setLoading(true); setError('')
     getJSON(withQuery('/api/trending', { period, limit: 100 })).then(setData)
       .catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(load, [period])
+
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
     return (data?.items || []).filter(item => {
       const matchesDomain = domain === 'all' || item.domain_id === domain
+      const comments = item.latest_comments || item.num_comments || 0
+      const matchesComments = minComments === 0 || comments >= minComments
       const text = `${item.title || ''} ${item.subreddit || ''} ${item.domain_name || ''} ${item.analysis?.topic || ''}`.toLocaleLowerCase('vi')
-      return matchesDomain && (!normalized || text.includes(normalized))
+      return matchesDomain && matchesComments && (!normalized || text.includes(normalized))
     })
-  }, [data, domain, query])
+  }, [data, domain, query, minComments])
 
   return <>
     <section className="page-intro radar-intro">
       <div><span className="eyebrow">RAW SIGNAL EXPLORER</span><h1>Radar</h1>
-        <p>Xếp hạng post theo độ mới, tương tác và vận tốc. Đây là bề mặt kiểm chứng, không phải bản tin mặc định.</p></div>
+        <p>Xếp hạng post theo độ mới, tương tác và vận tốc. Tự động ưu tiên bài có thảo luận giá trị.</p></div>
       <SearchBox value={query} setValue={setQuery} placeholder="Lọc tiêu đề hoặc subreddit…" />
     </section>
+
     <div className="radar-controls">
       <div className="period-switch">{PERIODS.map(([value, label]) => <button key={value}
         className={period === value ? 'active' : ''} onClick={() => { setPeriod(value); setDomain('all') }}>{label}</button>)}</div>
     </div>
+
     <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={data?.items?.length || 0} />
+
+    <div className="smart-toolbar compact-toolbar">
+      <button
+        className={`toolbar-pill ${minComments === 2 ? 'active' : ''}`}
+        onClick={() => setMinComments(minComments === 2 ? 0 : 2)}
+      >
+        <MessageCircle size={13} />
+        <span>Ưu tiên bài >2 bình luận</span>
+      </button>
+    </div>
+
     <div className="result-line"><span><b>{filtered.length}</b> tín hiệu</span><span>Dữ liệu tạo {relativeTime(data?.generated_at)}</span></div>
+
     {error ? <ErrorState message={error} retry={load} /> : loading ? <Loading label="Đang đo vận tốc tín hiệu…" />
-      : filtered.length ? <div className="radar-list">{filtered.map((item, index) => <MiniSignal item={item} rank={index + 1} key={item.post_id} />)}</div>
-      : <div className="empty-panel"><Search size={28} /><h3>Không tìm thấy tín hiệu</h3><p>Thử đổi từ khóa, lĩnh vực hoặc khoảng thời gian.</p></div>}
+      : filtered.length ? (
+        <div className="radar-list">
+          {filtered.map((item, index) => (
+            <MiniSignal
+              item={item}
+              rank={index + 1}
+              key={item.post_id}
+              isSaved={savedSet.has(item.post_id)}
+              toggleSave={toggleSave}
+              isRead={readSet.has(item.post_id)}
+              markRead={markRead}
+            />
+          ))}
+        </div>
+      ) : <div className="empty-panel"><Search size={28} /><h3>Không tìm thấy tín hiệu</h3><p>Thử đổi từ khóa, lĩnh vực hoặc khoảng thời gian.</p></div>}
   </>
 }
 
@@ -421,15 +722,17 @@ function EvidenceAnalysis({ item }) {
   </section>
 }
 
-function PostDetail({ postId }) {
+function PostDetail({ postId, markRead }) {
   const [post, setPost] = useState(null)
   const [error, setError] = useState('')
   useEffect(() => {
+    markRead(postId)
     getJSON(`/api/posts/${encodeURIComponent(postId)}`).then(item => {
       setPost(item)
       document.title = `${item.analysis?.topic || item.title} — Reddit Radar`
     }).catch(err => setError(err.message))
   }, [postId])
+
   if (error) return <ErrorState message={error} />
   if (!post) return <Loading label="Đang mở hồ sơ bằng chứng…" />
   const title = post.analysis?.topic || post.article_title || post.title
@@ -473,25 +776,71 @@ function Footer({ health }) {
 export default function App() {
   const [path, setPath] = useState(window.location.pathname)
   const [health, setHealth] = useState(null)
+
+  // Local storage state for bookmarks & read posts
+  const [savedSet, setSavedSet] = useState(() => {
+    try {
+      const stored = localStorage.getItem('rr_bookmarks')
+      return new Set(stored ? JSON.parse(stored) : [])
+    } catch {
+      return new Set()
+    }
+  })
+
+  const [readSet, setReadSet] = useState(() => {
+    try {
+      const stored = localStorage.getItem('rr_read_posts')
+      return new Set(stored ? JSON.parse(stored) : [])
+    } catch {
+      return new Set()
+    }
+  })
+
+  const toggleSave = (postId) => {
+    setSavedSet(prev => {
+      const next = new Set(prev)
+      if (next.has(postId)) next.delete(postId)
+      else next.add(postId)
+      try { localStorage.setItem('rr_bookmarks', JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }
+
+  const markRead = (postId) => {
+    if (!postId) return
+    setReadSet(prev => {
+      if (prev.has(postId)) return prev
+      const next = new Set(prev)
+      next.add(postId)
+      try { localStorage.setItem('rr_read_posts', JSON.stringify([...next])) } catch {}
+      return next
+    })
+  }
+
   useEffect(() => {
     const onPop = () => setPath(window.location.pathname)
     window.addEventListener('popstate', onPop)
     return () => window.removeEventListener('popstate', onPop)
   }, [])
+
   useEffect(() => {
     getJSON('/api/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
   }, [path])
 
   const postMatch = path.match(/^\/post\/([^/]+)/)
   const active = postMatch ? 'knowledge'
+    : path === '/saved' ? 'saved'
     : path === '/knowledge' ? 'knowledge'
-      : ['/radar', '/signals'].includes(path) ? 'radar' : 'today'
+    : ['/radar', '/signals'].includes(path) ? 'radar' : 'today'
+
   return <div className="app-shell">
-    <Header active={active} health={health} />
+    <Header active={active} health={health} savedCount={savedSet.size} />
     <main className={`page-shell ${postMatch ? 'detail-shell' : ''}`}>
-      {postMatch ? <PostDetail postId={decodeURIComponent(postMatch[1])} />
-        : active === 'knowledge' ? <KnowledgePage />
-          : active === 'radar' ? <RadarPage /> : <TodayPage health={health} />}
+      {postMatch ? <PostDetail postId={decodeURIComponent(postMatch[1])} markRead={markRead} />
+        : active === 'saved' ? <SavedPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
+        : active === 'knowledge' ? <KnowledgePage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
+        : active === 'radar' ? <RadarPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
+        : <TodayPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />}
     </main>
     <Footer health={health} />
   </div>
