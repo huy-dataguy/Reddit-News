@@ -38,6 +38,8 @@ _PRIMARY_KEYS = {
     "ai_post_analysis": ("post_id",),
     "ai_post_analysis_v2": ("post_id",),
     "fact_extracted_resource": ("resource_id",),
+    "user_bookmark": ("post_id",),
+    "user_read_state": ("post_id",),
 }
 
 _EXTRACTED_RESOURCE_COLUMNS = (
