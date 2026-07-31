@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BookOpen,
   Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
-  Copy, Check, ExternalLink, Eye, EyeOff, FileText, Filter, Gauge, Globe2, Layers3, Lightbulb,
+  Copy, Check, ExternalLink, Eye, EyeOff, FileText, Filter, Flame, Gauge, Globe2, Layers3, Lightbulb,
   Menu, MessageCircle, Radio, Search, ShieldCheck, Sparkles, Star, Target,
   ThumbsUp, TrendingUp, X,
 } from 'lucide-react'
@@ -212,11 +212,16 @@ function CardActionsBar({ item, isSaved, toggleSave, isRead, markRead }) {
 
 function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, markRead }) {
   const view = analysisView(item)
+  const isHotPost = (item.num_comments >= 15 || item.score >= 30 || item.source_stream === 'hot' || item.source_stream === 'both')
+
   return <article className={`analysis-card ${featured ? 'featured' : ''} ${isRead ? 'read-card' : ''}`}>
     <div className="card-topline">
-      <span className="domain-label"><DomainIcon domain={item.domain_id} size={14} />
-        {item.domain_name || 'Khác'}
-      </span>
+      <div className="topline-tags">
+        <span className="domain-label"><DomainIcon domain={item.domain_id} size={14} />
+          {item.domain_name || 'Khác'}
+        </span>
+        {isHotPost && <span className="hot-pill" title="Bài viết nổi bật đang có lượng thảo luận sôi nổi"><Flame size={12} /> HOT VIRAL</span>}
+      </div>
       <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />
     </div>
     <h3>
@@ -228,18 +233,13 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
     {view.keyPoints[0] && <div className="key-preview">
       <Lightbulb size={15} /><span>{view.keyPoints[0].text}</span>
     </div>}
-    
+    <div className="card-meta">
+      <span><ThumbsUp size={13} /> {item.score || 0}</span>
+      <span><MessageCircle size={13} /> {item.num_comments || item.comment_count || 0}</span>
+      <span><Clock3 size={13} /> {relativeTime(item.generated_at || item.created_utc)}</span>
+      {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
+    </div>
     <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
-
-    <footer className="card-footer">
-      <span>r/{item.subreddit || '?'}</span>
-      <span><ThumbsUp size={13} /> {compactNumber.format(item.score || 0)}</span>
-      <span><MessageCircle size={13} /> {compactNumber.format(item.num_comments || item.comment_count || 0)}</span>
-      <span>{relativeTime(item.generated_at)}</span>
-      <AppLink href={`/post/${item.post_id}`} className="text-link" onClick={() => markRead(item.post_id)}>
-        Xem bằng chứng <ArrowRight size={14} />
-      </AppLink>
-    </footer>
   </article>
 }
 
@@ -258,15 +258,14 @@ function DigestPanel({ digest, provisional, message }) {
     <div className="digest-head">
       <div>
         <div className="digest-kicker"><Sparkles size={15} /> BRIEFING {digest.period?.toUpperCase()}</div>
-        <h2>{payload.title || digest.title || 'Technology intelligence briefing'}</h2>
+        <h2>{digest.title || 'Điểm tin công nghệ AI & Lập trình'}</h2>
       </div>
       <ProviderBadge provider={digest.provider} model={digest.model} isAI={digest.is_ai} />
     </div>
-    <p className="digest-summary">{payload.executive_summary || digest.executive_summary}</p>
-    {message && <div className="digest-notice"><AlertTriangle size={15} /> {message}</div>}
+    {digest.summary && <p className="digest-lead">{digest.summary}</p>}
     {stories.length > 0 && <div className="digest-stories">
       {stories.slice(0, 4).map((story, index) => {
-        const postId = story.source_post_ids?.[0]
+        const postId = story.post_id || story.source_post_ids?.[0]
         const content = <><span>{story.change_type || story.category || 'update'}</span>
           <b>{story.headline}</b><small>{story.summary || story.why_it_matters}</small></>
         return postId
@@ -281,9 +280,21 @@ function DigestPanel({ digest, provisional, message }) {
   </section>
 }
 
-function SmartFilterToolbar({ minComments, setMinComments, hideRead, setHideRead, sortBy, setSortBy }) {
+function SmartFilterToolbar({ streamFilter, setStreamFilter, minComments, setMinComments, hideRead, setHideRead, sortBy, setSortBy }) {
   return <div className="smart-toolbar">
     <div className="toolbar-left">
+      <div className="stream-tabs">
+        <button className={`stream-tab ${streamFilter === 'all' ? 'active' : ''}`} onClick={() => setStreamFilter('all')}>
+          🌐 Tất cả
+        </button>
+        <button className={`stream-tab ${streamFilter === 'hot' ? 'active' : ''}`} onClick={() => setStreamFilter('hot')}>
+          <Flame size={13} /> HOT VIRAL
+        </button>
+        <button className={`stream-tab ${streamFilter === 'new' ? 'active' : ''}`} onClick={() => setStreamFilter('new')}>
+          ⚡ Tin Mới
+        </button>
+      </div>
+
       <button
         className={`toolbar-pill ${minComments === 2 ? 'active' : ''}`}
         onClick={() => setMinComments(minComments === 2 ? 0 : 2)}
@@ -317,13 +328,14 @@ function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [streamFilter, setStreamFilter] = useState('all')
   const [minComments, setMinComments] = useState(2)
   const [hideRead, setHideRead] = useState(false)
   const [sortBy, setSortBy] = useState('value')
 
   const load = () => {
     setLoading(true); setError('')
-    getJSON('/api/today?period=day&limit=15').then(setData)
+    getJSON('/api/today?period=day&limit=25').then(setData)
       .catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(load, [])
@@ -332,17 +344,25 @@ function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
     if (!data?.highlights) return []
     let list = [...data.highlights]
 
-    // 1. Filter out 0-1 comment posts if minComments active
+    // 1. Stream filter (all / hot / new)
+    if (streamFilter === 'hot') {
+      list = list.filter(i => (i.num_comments || i.comment_count || 0) >= 10 || (i.score || 0) >= 20 || i.source_stream === 'hot' || i.source_stream === 'both')
+    } else if (streamFilter === 'new') {
+      const nowSec = Date.now() / 1000
+      list = list.filter(i => (nowSec - (i.created_utc || i.generated_at || 0)) <= 86400)
+    }
+
+    // 2. Filter out 0-1 comment posts if minComments active
     if (minComments > 0) {
       list = list.filter(i => (i.num_comments || i.comment_count || 0) >= minComments)
     }
 
-    // 2. Filter out read posts if hideRead active
+    // 3. Filter out read posts if hideRead active
     if (hideRead) {
       list = list.filter(i => !readSet.has(i.post_id))
     }
 
-    // 3. Sort
+    // 4. Sort
     list.sort((a, b) => {
       if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
       if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
@@ -352,7 +372,7 @@ function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
     })
 
     return list
-  }, [data, minComments, hideRead, sortBy, readSet])
+  }, [data, streamFilter, minComments, hideRead, sortBy, readSet])
 
   if (loading) return <Loading label="Đang chuẩn bị bản tin hôm nay…" />
   if (error) return <ErrorState message={error} retry={load} />
@@ -385,6 +405,7 @@ function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
     </section>
 
     <SmartFilterToolbar
+      streamFilter={streamFilter} setStreamFilter={setStreamFilter}
       minComments={minComments} setMinComments={setMinComments}
       hideRead={hideRead} setHideRead={setHideRead}
       sortBy={sortBy} setSortBy={setSortBy}

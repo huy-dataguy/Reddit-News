@@ -17,6 +17,19 @@ from .storage import Storage
 
 
 _URL_PATTERN = re.compile(r"https?://[^\s<>()\]\[\"']+", re.IGNORECASE)
+_key_rotation_counter = 0
+
+
+def _get_gemini_api_key() -> str:
+    global _key_rotation_counter
+    keys = [
+        k.strip() for k in [os.environ.get("GEMINI_API_KEY"), os.environ.get("GEMINI_API_KEY_2")]
+        if k and k.strip()
+    ]
+    if not keys:
+        raise RuntimeError("Thiếu GEMINI_API_KEY")
+    _key_rotation_counter += 1
+    return keys[_key_rotation_counter % len(keys)]
 
 
 def _extract_urls(text: str) -> set[str]:
@@ -523,7 +536,7 @@ def gemini_digest(bundle: list[dict], period: str, agent: str) -> tuple[DigestCo
     """Chạy managed Antigravity Agent với search/URL tools bị giới hạn."""
     from google import genai
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = genai.Client(api_key=_get_gemini_api_key())
     interaction = client.interactions.create(
         agent=agent,
         input=(
@@ -786,7 +799,7 @@ def gemini_post_analysis(bundle: dict, model: str) -> tuple[PostAnalysis, int, i
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = genai.Client(api_key=_get_gemini_api_key())
     response = client.models.generate_content(
         model=model,
         contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
@@ -1273,7 +1286,7 @@ def gemini_post_analysis_v2(bundle: dict, model: str) -> tuple[PostAnalysisV2, i
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    client = genai.Client(api_key=_get_gemini_api_key())
     response = client.models.generate_content(
         model=model,
         contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
