@@ -242,6 +242,15 @@ a { color: inherit; text-decoration: none; }
   .footer { flex-direction: column; }
 }
 
+.btn-back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 0; background: transparent; padding: 0;
+  color: var(--blue); font-size: 13px; font-weight: 700; cursor: pointer;
+  margin-bottom: 16px;
+}
+.btn-back-link:hover { text-decoration: underline; }
+
+
 /* SMART TOOLBAR & ACTION BUTTONS */
 .smart-toolbar {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;

@@ -454,10 +454,23 @@ function DomainChips({ domains, selected, setSelected, total }) {
   </div>
 }
 
+function getStoredNum(key, defaultVal) {
+  try {
+    const val = sessionStorage.getItem(key)
+    return val !== null ? Number(val) : defaultVal
+  } catch {
+    return defaultVal
+  }
+}
+
+function setStoredNum(key, val) {
+  try { sessionStorage.setItem(key, String(val)) } catch {}
+}
+
 function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState('all')
-  const [offset, setOffset] = useState(0)
+  const [offset, setOffsetState] = useState(() => getStoredNum('rr_k_offset', 0))
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -466,16 +479,36 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
   const [sortBy, setSortBy] = useState('value')
   const limit = 12
 
+  const setOffset = (val) => {
+    setOffsetState(val)
+    setStoredNum('rr_k_offset', val)
+  }
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setLoading(true); setError('')
       getJSON(withQuery('/api/knowledge/feed', { q: query.trim(), domain, limit, offset }))
-        .then(setData).catch(err => setError(err.message)).finally(() => setLoading(false))
+        .then(res => {
+          setData(res)
+          // Restore scroll position if returning from post detail
+          try {
+            const savedScroll = sessionStorage.getItem('rr_scroll_pos')
+            if (savedScroll) {
+              window.scrollTo({ top: Number(savedScroll), behavior: 'smooth' })
+              sessionStorage.removeItem('rr_scroll_pos')
+            }
+          } catch {}
+        })
+        .catch(err => setError(err.message))
+        .finally(() => setLoading(false))
     }, 180)
     return () => window.clearTimeout(timer)
   }, [query, domain, offset])
 
-  useEffect(() => setOffset(0), [query, domain])
+  const handleDomainChange = (d) => {
+    setDomain(d)
+    setOffset(0)
+  }
 
   const filteredItems = useMemo(() => {
     if (!data?.items) return []
@@ -503,10 +536,10 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
     <section className="page-intro">
       <div><span className="eyebrow">EVIDENCE → INTELLIGENCE</span><h1>Kho tri thức</h1>
         <p>Mỗi bài được làm sạch, ưu tiên bài viết có thảo luận sôi nổi (>2 bình luận). Bạn có thể bấm lưu bài để đọc lại sau.</p></div>
-      <SearchBox value={query} setValue={setQuery} placeholder="Tìm chủ đề, subreddit, công nghệ…" />
+      <SearchBox value={query} setValue={val => { setQuery(val); setOffset(0) }} placeholder="Tìm chủ đề, subreddit, công nghệ…" />
     </section>
 
-    <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={data?.total || 0} />
+    <DomainChips domains={data?.domains || []} selected={domain} setSelected={handleDomainChange} total={data?.total || 0} />
 
     <SmartFilterToolbar
       minComments={minComments} setMinComments={setMinComments}
@@ -515,7 +548,7 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
     />
 
     <div className="result-line">
-      <span><b>{filteredItems.length}</b> phân tích phù hợp</span>
+      <span><b>{filteredItems.length}</b> phân tích phù hợp (Trang {Math.floor(offset / limit) + 1})</span>
       <span>Xếp hạng theo giá trị & bình luận</span>
     </div>
 
@@ -741,7 +774,9 @@ function PostDetail({ postId, markRead }) {
     ...(post.analysis?.opinion_groups || []).flatMap(group => group.comment_ids || []),
   ])
   return <>
-    <AppLink href="/knowledge" className="back-link"><ArrowLeft size={15} /> Kho tri thức</AppLink>
+    <button className="back-link btn-back-link" onClick={() => window.history.length > 1 ? window.history.back() : navigate('/knowledge')}>
+      <ArrowLeft size={15} /> Quay lại danh sách
+    </button>
     <article className="post-header">
       <div className="card-topline"><span className="domain-label"><DomainIcon domain={post.domain_id} size={14} /> {post.domain_name}</span><span>r/{post.subreddit}</span></div>
       <h1>{title}</h1>
