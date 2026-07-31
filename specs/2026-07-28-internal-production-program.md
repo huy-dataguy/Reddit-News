@@ -156,7 +156,7 @@ Tier: R3 — chương trình bao gồm production data migration, systemd deploy
 
 ## Interfaces (only if criteria depend on each other)
 
-- `specs/production-program.yaml`: `{version, current_wave, specs[], dependencies[], gates[], exemptions[], external_blockers[]}`; spec ID/path/status/owner/risk tier là bắt buộc.
+- `specs/production-program.json`: This program's machine-readable registry and single source of truth for active specs, dependencies, and external blockers. See WP0 spec. ID/path/status/owner/risk tier là bắt buộc.
 - `ProductionCheckResultV1`: `{profile, release_id, started_at, finished_at, status, checks[], evidence_paths[], blockers[]}`.
 - `ReleaseManifestV1`: `{release_id, revision, lock_digests, schema_version, bronze_contract_version, gold_snapshot_id, unit_digests, checks, backup, restore_drill, observation_window, deviations, go_live_approved_by, go_live_approved_at}`.
 - `reports/operations/release/<release_id>/`: immutable evidence directory sau sign-off; có `manifest.json` làm entry point.

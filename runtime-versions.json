@@ -1,0 +1,8 @@
+{
+  "python": "3.12.3",
+  "pip": "24.0",
+  "lock_tool": "pip-freeze",
+  "node": "24.15.0",
+  "npm": "11.12.1",
+  "notes": "Generated from live venv 2026-07-31. Lock tool is pip-freeze of existing venv; use scripts/verify-clean-python-lock.sh for clean bootstrap validation."
+}

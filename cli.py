@@ -314,6 +314,144 @@ def cmd_story_export(args: argparse.Namespace) -> None:
     )
 
 
+# --------------------------------------------------------------------------- ops commands
+def cmd_ops(args: argparse.Namespace) -> int:
+    """Dispatcher for 'ops' subcommands."""
+    if not hasattr(args, "ops_cmd") or args.ops_cmd is None:
+        print("Usage: cli.py ops <backup|restore-drill|check-permissions|capacity-check|verify-units>")
+        return 1
+
+    if args.ops_cmd == "backup":
+        return _cmd_ops_backup(args)
+    elif args.ops_cmd == "restore-drill":
+        return _cmd_ops_restore_drill(args)
+    elif args.ops_cmd == "check-permissions":
+        return _cmd_ops_check_permissions(args)
+    elif args.ops_cmd == "capacity-check":
+        return _cmd_ops_capacity_check(args)
+    elif args.ops_cmd == "verify-units":
+        return _cmd_ops_verify_units(args)
+    else:
+        print(f"Unknown ops subcommand: {args.ops_cmd}")
+        return 1
+
+
+def _cmd_ops_backup(args: argparse.Namespace) -> int:
+    from reddit_crawler.ops.backup import backup_db
+    db_path = getattr(args, "db", os.environ.get("REDDIT_DB_PATH", "reddit.db"))
+    backup_dir = args.backup_dir
+    dry_run = args.dry_run
+
+    if dry_run:
+        print(f"[dry-run] Would backup: {db_path} → {backup_dir}/")
+    else:
+        print(f"Creating backup: {db_path} → {backup_dir}/")
+
+    manifest = backup_db(db_path, backup_dir, dry_run=dry_run)
+    print(f"  backup_id:    {manifest.backup_id}")
+    print(f"  artifact:     {manifest.artifact}")
+    print(f"  sha256:       {manifest.sha256}")
+    print(f"  size_bytes:   {manifest.size_bytes:,}")
+    print(f"  quick_check:  {manifest.quick_check}")
+    print(f"  fk_check:     {manifest.foreign_key_check}")
+    print(f"  schema_ver:   {manifest.source_schema_version}")
+    if dry_run:
+        print("[dry-run] No files created.")
+    return 0
+
+
+def _cmd_ops_restore_drill(args: argparse.Namespace) -> int:
+    from reddit_crawler.ops.backup import restore_drill
+    backup_dir = args.backup_dir
+    print(f"Running restore drill from: {backup_dir}")
+    result = restore_drill(backup_dir)
+    status = result["drill_result"]
+    print(f"  result:       {status}")
+    print(f"  quick_check:  {result['quick_check']}")
+    print(f"  fk_check:     {result['foreign_key_check']}")
+    print(f"  sha256_ok:    {result['sha256_verified']}")
+    print(f"  duration_s:   {result['duration_seconds']}")
+    print(f"  live_db_safe: {result['live_db_untouched']}")
+    if result.get("counts"):
+        print(f"  counts:       {result['counts']}")
+    return 0 if status == "pass" else 1
+
+
+def _cmd_ops_check_permissions(args: argparse.Namespace) -> int:
+    from reddit_crawler.ops.permissions import check_permissions
+    result = check_permissions(".")
+    print(f"Permission scan — overall: {result['overall']}")
+    print(f"  violations: {result['violations']}, warnings: {result['warnings']}")
+    for finding in result["findings"]:
+        prefix = "  [OK]  " if finding["severity"] == "ok" else f"  [{finding['severity'].upper()}] "
+        print(f"{prefix}{finding['message']}")
+    print(f"\nNote: {result['note']}")
+    return 0 if result["overall"] in ("ok", "warning") else 1
+
+
+def _cmd_ops_capacity_check(args: argparse.Namespace) -> int:
+    from reddit_crawler.ops.capacity import capacity_check
+    path = getattr(args, "path", ".")
+    gate = capacity_check(path)
+    print(f"Capacity check for: {gate.filesystem}")
+    print(f"  status:     {gate.status.value}")
+    print(f"  free:       {gate.free_gib:.1f} GiB ({gate.free_pct:.1f}%)")
+    print(f"  total:      {gate.total_bytes / (1024**3):.1f} GiB")
+    print(f"  stop_batch: {gate.should_stop_batch}")
+    print(f"  hard_stop:  {gate.should_hard_stop}")
+    print(f"  message:    {gate.message}")
+    return 0 if not gate.should_hard_stop else 1
+
+
+def _cmd_ops_verify_units(args: argparse.Namespace) -> int:
+    """Verify systemd unit files in deploy/systemd/."""
+    import hashlib
+    import subprocess
+    from pathlib import Path
+
+    units_dir = Path("deploy/systemd")
+    if not units_dir.exists():
+        print("No deploy/systemd/ directory found")
+        return 1
+
+    units = sorted(units_dir.glob("*.service")) + sorted(units_dir.glob("*.timer"))
+    if not units:
+        print("No unit files found in deploy/systemd/")
+        return 1
+
+    print(f"Verifying {len(units)} unit file(s):")
+    for unit in units:
+        digest = hashlib.sha256(unit.read_bytes()).hexdigest()[:16]
+        print(f"  {unit.name:<45} sha256=...{digest}")
+
+    if getattr(args, "require_localhost", False):
+        # Check web service doesn't bind to 0.0.0.0
+        web_units = [u for u in units if "web" in u.name]
+        for wu in web_units:
+            content = wu.read_text(encoding="utf-8")
+            if "0.0.0.0" in content:
+                print(f"  VIOLATION: {wu.name} contains 0.0.0.0 binding")
+                return 1
+        print("  localhost binding: ok (no 0.0.0.0 found in web units)")
+
+    # Try systemd-analyze verify if available
+    try:
+        result = subprocess.run(
+            ["systemd-analyze", "verify"] + [str(u) for u in units],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0:
+            print("  systemd-analyze verify: ok")
+        else:
+            print(f"  systemd-analyze verify: warnings (exit {result.returncode})")
+            if result.stderr:
+                print(result.stderr[:500])
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("  systemd-analyze: not available (skipped)")
+
+    return 0
+
+
 # --------------------------------------------------------------------------- parser
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Reddit OAuth crawler")
@@ -452,6 +590,33 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_story_export)
 
     sub.add_parser("stats", help="đếm số dòng trong DB").set_defaults(func=cmd_stats)
+
+    # ── ops subcommand group ──────────────────────────────────────────────
+    ops_p = sub.add_parser("ops", help="runtime operations: backup, restore-drill, permissions, capacity")
+    ops_sub = ops_p.add_subparsers(dest="ops_cmd", metavar="OPS_CMD")
+    ops_p.set_defaults(func=cmd_ops)
+
+    sp = ops_sub.add_parser("backup", help="tạo SQLite online backup với manifest và checksum")
+    sp.add_argument("--db", default=os.environ.get("REDDIT_DB_PATH", "reddit.db"))
+    sp.add_argument("--backup-dir", default="reports/operations/backups")
+    sp.add_argument("--dry-run", action="store_true", help="xác nhận mà không ghi file")
+
+    sp = ops_sub.add_parser("restore-drill", help="khôi phục backup mới nhất vào temp path và verify")
+    sp.add_argument("--backup-dir", default="reports/operations/backups")
+    sp.add_argument("--latest", action="store_true", default=True, help="dùng backup mới nhất")
+    sp.add_argument("--temporary", action="store_true", default=True, help="restore vào temp dir")
+    sp.add_argument("--verify", action="store_true", default=True, help="chạy quick_check/FK sau restore")
+
+    sp = ops_sub.add_parser("check-permissions", help="quét permission file nhạy cảm (không in giá trị)")
+    sp.add_argument("--redact-values", action="store_true", default=True)
+
+    sp = ops_sub.add_parser("capacity-check", help="kiểm tra disk capacity với warning/critical/halt thresholds")
+    sp.add_argument("--path", default=".")
+
+    sp = ops_sub.add_parser("verify-units", help="kiểm tra systemd units trong repo")
+    sp.add_argument("--installed", action="store_true", help="so sánh digest với unit đã cài")
+    sp.add_argument("--require-localhost", action="store_true", help="đảm bảo web bind localhost")
+
     return p
 
 

@@ -1,0 +1,131 @@
+{
+  "version": "1.0.0",
+  "schema_version": 1,
+  "generated_at": "2026-07-31T00:00:00Z",
+  "current_wave": 0,
+  "specs": [
+    {
+      "id": "2026-07-28-internal-production-program",
+      "path": "specs/2026-07-28-internal-production-program.md",
+      "title": "Reddit Radar internal-production program",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R3",
+      "release_wave": 0,
+      "is_program_authority": true,
+      "dependencies": []
+    },
+    {
+      "id": "2026-07-28-medallion-lite-internal-production",
+      "path": "specs/2026-07-28-medallion-lite-internal-production.md",
+      "title": "Medallion-lite data pipeline",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R3",
+      "release_wave": 1
+    },
+    {
+      "id": "2026-07-28-release-engineering-runtime-operations",
+      "path": "specs/2026-07-28-release-engineering-runtime-operations.md",
+      "title": "Reproducible release and runtime operations",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R3",
+      "release_wave": 0
+    },
+    {
+      "id": "2026-07-28-safe-source-content-ingestion",
+      "path": "specs/2026-07-28-safe-source-content-ingestion.md",
+      "title": "Safe source-content ingestion",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R2",
+      "release_wave": 2
+    },
+    {
+      "id": "2026-07-28-llm-workload-control-quality",
+      "path": "specs/2026-07-28-llm-workload-control-quality.md",
+      "title": "LLM workload control and quality",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R2",
+      "release_wave": 2
+    },
+    {
+      "id": "2026-07-28-grounded-social-briefs",
+      "path": "specs/2026-07-28-grounded-social-briefs.md",
+      "title": "Grounded social briefs",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R2",
+      "release_wave": 3
+    },
+    {
+      "id": "2026-07-28-single-intelligence-feed-ui",
+      "path": "specs/2026-07-28-single-intelligence-feed-ui.md",
+      "title": "Single intelligence feed UI",
+      "date": "2026-07-28",
+      "status": "approved",
+      "risk_tier": "R2",
+      "release_wave": 4
+    },
+    {
+      "id": "2026-07-26-evidence-to-intelligence-mvp",
+      "path": "specs/2026-07-26-evidence-to-intelligence-mvp.md",
+      "title": "Evidence-to-Intelligence MVP",
+      "date": "2026-07-26",
+      "status": "blocked",
+      "risk_tier": "R2",
+      "release_wave": null
+    },
+    {
+      "id": "2026-07-25-simplify-radar",
+      "path": "specs/2026-07-25-simplify-radar.md",
+      "title": "Simplify Reddit Radar",
+      "date": "2026-07-25",
+      "status": "blocked",
+      "risk_tier": "R1",
+      "release_wave": null
+    },
+    {
+      "id": "2026-07-23-multi-source-intelligence-radar",
+      "path": "specs/2026-07-23-multi-source-intelligence-radar.md",
+      "title": "Multi-Source Intelligence Radar",
+      "date": "2026-07-23",
+      "status": "blocked",
+      "risk_tier": "R2",
+      "release_wave": null
+    },
+    {
+      "id": "2026-07-20-story-export-bridge",
+      "path": "specs/2026-07-20-story-export-bridge.md",
+      "title": "Story export bridge",
+      "date": "2026-07-20",
+      "status": "done",
+      "risk_tier": "R1",
+      "release_wave": null
+    },
+    {
+      "id": "refactor-spec-ai-analysis",
+      "path": "specs/refactor-spec-ai-analysis.md",
+      "title": "Refactor AI analysis",
+      "date": "2026-07-20",
+      "status": "blocked",
+      "risk_tier": "R1",
+      "release_wave": null
+    }
+  ],
+  "dependencies": [
+    {"from": "2026-07-28-medallion-lite-internal-production", "to": "2026-07-28-internal-production-program", "type": "requires"},
+    {"from": "2026-07-28-release-engineering-runtime-operations", "to": "2026-07-28-internal-production-program", "type": "requires"},
+    {"from": "2026-07-28-safe-source-content-ingestion", "to": "2026-07-28-medallion-lite-internal-production", "type": "requires"},
+    {"from": "2026-07-28-llm-workload-control-quality", "to": "2026-07-28-medallion-lite-internal-production", "type": "requires"},
+    {"from": "2026-07-28-grounded-social-briefs", "to": "2026-07-28-medallion-lite-internal-production", "type": "requires"},
+    {"from": "2026-07-28-grounded-social-briefs", "to": "2026-07-28-safe-source-content-ingestion", "type": "requires"},
+    {"from": "2026-07-28-grounded-social-briefs", "to": "2026-07-28-llm-workload-control-quality", "type": "requires"},
+    {"from": "2026-07-28-single-intelligence-feed-ui", "to": "2026-07-28-grounded-social-briefs", "type": "requires"}
+  ],
+  "external_blockers": [
+    {"id": "mediaworkflow-spotify-fix", "description": "MediaWorkflow must remove hard-coded Spotify copy before story-export generic publish is enabled"}
+  ]
+}

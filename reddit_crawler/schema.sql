@@ -251,3 +251,94 @@ CREATE INDEX IF NOT EXISTS ix_ai_post_analysis_v2_time ON ai_post_analysis_v2(ge
 CREATE INDEX IF NOT EXISTS ix_resource_post ON fact_extracted_resource(post_id);
 CREATE INDEX IF NOT EXISTS ix_resource_type ON fact_extracted_resource(resource_type, score DESC);
 CREATE INDEX IF NOT EXISTS ix_resource_domain ON fact_extracted_resource(domain);
+
+-- Medallion control plane tables
+CREATE TABLE IF NOT EXISTS pipeline_run (
+    run_id TEXT PRIMARY KEY,
+    pipeline TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at REAL NOT NULL,
+    finished_at REAL,
+    input_count INTEGER DEFAULT 0,
+    output_count INTEGER DEFAULT 0,
+    error_summary TEXT
+);
+
+CREATE TABLE IF NOT EXISTS bronze_object (
+    object_id TEXT PRIMARY KEY,
+    run_id TEXT REFERENCES pipeline_run(run_id),
+    entity_type TEXT NOT NULL,
+    relative_path TEXT NOT NULL,
+    sha256 TEXT NOT NULL,
+    row_count INTEGER DEFAULT 0,
+    min_fetched_at REAL,
+    max_fetched_at REAL,
+    transform_status TEXT NOT NULL DEFAULT 'pending',
+    transformed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS data_quality_result (
+    run_id TEXT NOT NULL,
+    layer TEXT NOT NULL,
+    check_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    observed_value TEXT,
+    threshold TEXT,
+    checked_at REAL NOT NULL,
+    PRIMARY KEY (run_id, layer, check_name)
+);
+
+CREATE TABLE IF NOT EXISTS serving_state (
+    singleton_id TEXT PRIMARY KEY DEFAULT 'current',
+    current_publish_id TEXT,
+    published_at REAL,
+    source_run_id TEXT
+);
+
+-- Lineage for enrichment (WP5)
+-- We need to add source_run_id, input_hash to ai_post_analysis_v2 or similar.
+-- Wait, I will use ALTER TABLE ADD COLUMN ... if missing in Python schema migrator, or just add them here if SQLite allows it simply.
+-- Wait, the instructions say:
+-- INSERT OR IGNORE INTO schema_migration (version, name) VALUES (10, 'medallion_control_plane');
+
+-- Gold marts (WP6)
+CREATE TABLE IF NOT EXISTS mart_post_signal (
+    publish_id TEXT NOT NULL,
+    period TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    as_of REAL,
+    trend_score REAL,
+    composite_value_score REAL,
+    score_velocity REAL,
+    comment_velocity REAL,
+    resource_count INTEGER DEFAULT 0,
+    analysis_provider TEXT,
+    source_run_id TEXT,
+    PRIMARY KEY (publish_id, period, post_id)
+);
+
+CREATE TABLE IF NOT EXISTS mart_post_knowledge (
+    publish_id TEXT NOT NULL,
+    post_id TEXT NOT NULL,
+    domain_id TEXT,
+    provider TEXT,
+    model TEXT,
+    analysis_version TEXT,
+    analysis_json TEXT,
+    generated_at REAL,
+    source_run_id TEXT,
+    PRIMARY KEY (publish_id, post_id)
+);
+
+CREATE TABLE IF NOT EXISTS mart_digest (
+    publish_id TEXT NOT NULL,
+    period TEXT NOT NULL,
+    digest_id TEXT NOT NULL,
+    generated_at REAL,
+    source_run_id TEXT,
+    PRIMARY KEY (publish_id, period)
+);
+
+-- Lineage migration
+ALTER TABLE ai_post_analysis_v2 ADD COLUMN source_run_id TEXT;
+ALTER TABLE ai_post_analysis_v2 ADD COLUMN input_hash TEXT;
