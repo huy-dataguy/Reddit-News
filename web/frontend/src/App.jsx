@@ -369,8 +369,7 @@ function TodayPage({ health, savedSet, toggleSave, readSet, markRead }) {
       <div className="hero-metrics">
         <Metric icon={Radio} value={compactNumber.format(counts.posts || 0)} label="tín hiệu đã lưu" tone="mint" />
         <Metric icon={MessageCircle} value={compactNumber.format(counts.comments || 0)} label="bình luận đã đọc" tone="orange" />
-        <Metric icon={Bot} value={fullNumber.format(counts.analyses_ai || 0)} label="phân tích LLM" tone="blue" />
-        <Metric icon={FileText} value={fullNumber.format(counts.analyses_local || 0)} label="trích xuất local" tone="violet" />
+        <Metric icon={Bot} value={fullNumber.format(counts.analyses_ai || 0)} label="phân tích Gemini AI" tone="blue" />
       </div>
     </section>
 
