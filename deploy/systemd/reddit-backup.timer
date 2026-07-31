@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily automated database backup and integrity verification for Reddit Radar
+
+[Timer]
+OnBootSec=5min
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

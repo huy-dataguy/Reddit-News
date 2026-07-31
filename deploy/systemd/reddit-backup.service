@@ -1,0 +1,14 @@
+[Unit]
+Description=Automated SQLite database backup and restore drill for Reddit Radar
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py ops backup
+ExecStartPost="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py ops restore-drill
+Nice=15
+
+[Install]
+WantedBy=default.target
