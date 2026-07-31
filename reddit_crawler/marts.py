@@ -15,20 +15,19 @@ def materialize_gold(db_path: Union[str, Path], source_run_id: str, periods: Lis
     
     try:
         with conn:
+            now_ts = time.time()
             for period in periods:
-                conn.execute(f"""
-                    INSERT INTO mart_post_signal (publish_id, period, post_id, as_of, trend_score, source_run_id)
-                    SELECT '{publish_id}', '{period}', post_id, {time.time()}, score, '{source_run_id}'
-                    FROM fact_post
-                    LIMIT 100
-                """)
-                
-            conn.execute(f"""
-                INSERT INTO mart_post_knowledge (publish_id, post_id, analysis_json, generated_at, source_run_id)
-                SELECT '{publish_id}', post_id, '{}', {time.time()}, '{source_run_id}'
-                FROM fact_post
-                LIMIT 100
-            """)
+                conn.execute(
+                    "INSERT INTO mart_post_signal (publish_id, period, post_id, as_of, trend_score, source_run_id) "
+                    "SELECT ?, ?, post_id, ?, score, ? FROM fact_post LIMIT 100",
+                    (publish_id, period, now_ts, source_run_id)
+                )
+
+            conn.execute(
+                "INSERT INTO mart_post_knowledge (publish_id, post_id, analysis_json, generated_at, source_run_id) "
+                "SELECT ?, post_id, '{}', ?, ? FROM fact_post LIMIT 100",
+                (publish_id, now_ts, source_run_id)
+            )
             
             for period in periods:
                 conn.execute(f"""
