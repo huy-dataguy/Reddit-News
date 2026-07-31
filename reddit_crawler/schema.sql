@@ -342,3 +342,17 @@ CREATE TABLE IF NOT EXISTS mart_digest (
 -- Lineage migration
 ALTER TABLE ai_post_analysis_v2 ADD COLUMN source_run_id TEXT;
 ALTER TABLE ai_post_analysis_v2 ADD COLUMN input_hash TEXT;
+
+-- User interaction state tables
+CREATE TABLE IF NOT EXISTS user_bookmark (
+    post_id             TEXT PRIMARY KEY REFERENCES fact_post(post_id),
+    saved_at            REAL NOT NULL,
+    notes               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS user_read_state (
+    post_id             TEXT PRIMARY KEY REFERENCES fact_post(post_id),
+    read_at             REAL NOT NULL,
+    read_count          INTEGER DEFAULT 1
+);
+

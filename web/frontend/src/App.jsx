@@ -777,7 +777,7 @@ export default function App() {
   const [path, setPath] = useState(window.location.pathname)
   const [health, setHealth] = useState(null)
 
-  // Local storage state for bookmarks & read posts
+  // Local storage + Backend SQLite DB state for bookmarks & read posts
   const [savedSet, setSavedSet] = useState(() => {
     try {
       const stored = localStorage.getItem('rr_bookmarks')
@@ -796,6 +796,29 @@ export default function App() {
     }
   })
 
+  // Initial sync from backend SQLite DB
+  useEffect(() => {
+    getJSON('/api/user/bookmarks').then(res => {
+      if (res?.bookmarks) {
+        setSavedSet(prev => {
+          const merged = new Set([...prev, ...res.bookmarks])
+          try { localStorage.setItem('rr_bookmarks', JSON.stringify([...merged])) } catch {}
+          return merged
+        })
+      }
+    }).catch(() => {})
+
+    getJSON('/api/user/read').then(res => {
+      if (res?.read) {
+        setReadSet(prev => {
+          const merged = new Set([...prev, ...res.read])
+          try { localStorage.setItem('rr_read_posts', JSON.stringify([...merged])) } catch {}
+          return merged
+        })
+      }
+    }).catch(() => {})
+  }, [])
+
   const toggleSave = (postId) => {
     setSavedSet(prev => {
       const next = new Set(prev)
@@ -804,6 +827,7 @@ export default function App() {
       try { localStorage.setItem('rr_bookmarks', JSON.stringify([...next])) } catch {}
       return next
     })
+    fetch(`/api/user/bookmarks/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
   }
 
   const markRead = (postId) => {
@@ -815,6 +839,7 @@ export default function App() {
       try { localStorage.setItem('rr_read_posts', JSON.stringify([...next])) } catch {}
       return next
     })
+    fetch(`/api/user/read/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
   }
 
   useEffect(() => {

@@ -606,3 +606,88 @@ def resources(
 ) -> dict[str, Any]:
     items = get_top_extracted_resources(DB_PATH, resource_type=kind, limit=limit)
     return {"kind": kind, "count": len(items), "items": items}
+
+
+@app.get("/api/user/bookmarks")
+def get_user_bookmarks() -> dict[str, Any]:
+    """Get list of bookmarked post IDs from SQLite database."""
+    path = Path(DB_PATH).resolve()
+    if not path.exists():
+        return {"bookmarks": []}
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    try:
+        if not _table_exists(conn, "user_bookmark"):
+            return {"bookmarks": []}
+        rows = conn.execute("SELECT post_id FROM user_bookmark ORDER BY saved_at DESC").fetchall()
+        return {"bookmarks": [r[0] for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.post("/api/user/bookmarks/{post_id}")
+def toggle_user_bookmark(post_id: str) -> dict[str, Any]:
+    """Save or toggle bookmark in SQLite database."""
+    path = Path(DB_PATH).resolve()
+    conn = sqlite3.connect(str(path), timeout=10)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_bookmark (
+                post_id TEXT PRIMARY KEY,
+                saved_at REAL NOT NULL,
+                notes TEXT
+            )
+        """)
+        existing = conn.execute("SELECT 1 FROM user_bookmark WHERE post_id=?", (post_id,)).fetchone()
+        if existing:
+            conn.execute("DELETE FROM user_bookmark WHERE post_id=?", (post_id,))
+            saved = False
+        else:
+            conn.execute("INSERT INTO user_bookmark (post_id, saved_at) VALUES (?, ?)", (post_id, time.time()))
+            saved = True
+        conn.commit()
+        return {"post_id": post_id, "saved": saved}
+    finally:
+        conn.close()
+
+
+@app.get("/api/user/read")
+def get_user_read_posts() -> dict[str, Any]:
+    """Get list of read post IDs from SQLite database."""
+    path = Path(DB_PATH).resolve()
+    if not path.exists():
+        return {"read": []}
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+    try:
+        if not _table_exists(conn, "user_read_state"):
+            return {"read": []}
+        rows = conn.execute("SELECT post_id FROM user_read_state ORDER BY read_at DESC").fetchall()
+        return {"read": [r[0] for r in rows]}
+    finally:
+        conn.close()
+
+
+@app.post("/api/user/read/{post_id}")
+def mark_user_read_post(post_id: str) -> dict[str, Any]:
+    """Mark a post as read in SQLite database."""
+    path = Path(DB_PATH).resolve()
+    conn = sqlite3.connect(str(path), timeout=10)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_read_state (
+                post_id TEXT PRIMARY KEY,
+                read_at REAL NOT NULL,
+                read_count INTEGER DEFAULT 1
+            )
+        """)
+        conn.execute("""
+            INSERT INTO user_read_state (post_id, read_at, read_count)
+            VALUES (?, ?, 1)
+            ON CONFLICT(post_id) DO UPDATE SET
+                read_at=excluded.read_at,
+                read_count=user_read_state.read_count + 1
+        """, (post_id, time.time()))
+        conn.commit()
+        return {"post_id": post_id, "status": "read"}
+    finally:
+        conn.close()
+
