@@ -490,8 +490,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("incremental", help="cron: lấy post MỚI cho danh sách sub + snapshot metrics")
     sp.add_argument("--subs-file", default="jobs/subs.txt")
     sp.add_argument("--only", help="ghi đè danh sách sub (ngăn cách bằng dấu phẩy)")
-    sp.add_argument("--sort", default="new", choices=["new"],
-                    help="incremental cần thứ tự thời gian ổn định; hiện chỉ hỗ trợ new")
+    sp.add_argument("--sort", default="both", choices=["new", "hot", "both"],
+                    help="thứ tự crawl: new (24h), hot (báo sức nóng), hoặc both")
     sp.add_argument("--comments", action="store_true", help="lấy luôn cây comment (nặng)")
     sp.add_argument("--depth", type=int, default=None)
     sp.add_argument("--no-more", action="store_true")

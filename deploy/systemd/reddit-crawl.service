@@ -7,4 +7,4 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
 EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
-ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py incremental --max-per-sub 200 --refresh-hours 168
+ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py incremental --sort both --max-per-sub 200 --refresh-hours 168
