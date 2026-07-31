@@ -88,7 +88,8 @@ CREATE TABLE IF NOT EXISTS fact_post (
     num_comments        INTEGER,
     num_crossposts      INTEGER,
     total_awards        INTEGER,
-    fetched_at          REAL
+    fetched_at          REAL,
+    source_stream       TEXT                -- 'new', 'hot', hoặc 'both'
 );
 
 CREATE TABLE IF NOT EXISTS fact_comment (

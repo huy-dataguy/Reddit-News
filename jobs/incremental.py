@@ -110,7 +110,7 @@ def run_incremental(
                 if hwm is not None and cu <= hwm and sort_mode == "new":
                     break                            # tới vùng cũ của /new -> dừng
 
-                store.upsert_post(post, subreddit_id=sub_id)
+                store.upsert_post(post, subreddit_id=sub_id, source_stream=sort_mode)
                 store.snapshot_metrics(post)
                 store.write_raw("post", [post])
                 n_new += 1

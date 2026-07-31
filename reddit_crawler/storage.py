@@ -254,7 +254,7 @@ class Storage:
         )
 
     # ---------------- GOLD: facts ----------------
-    def upsert_post(self, p: dict, subreddit_id: str | None = None) -> None:
+    def upsert_post(self, p: dict, subreddit_id: str | None = None, source_stream: str | None = None) -> None:
         post_id = p.get("id") or _short_id(p.get("name"))
         if not post_id:
             return
@@ -264,7 +264,19 @@ class Storage:
             author = None
         self._stub_subreddit(sid, p.get("subreddit"))
         self._stub_author(author)
-        self._upsert("fact_post", {
+
+        final_stream = source_stream
+        if source_stream:
+            # Check existing stream in DB
+            try:
+                row = self.conn.execute("SELECT source_stream FROM fact_post WHERE post_id=?", (post_id,)).fetchone()
+                existing_stream = row[0] if row else None
+                if existing_stream and existing_stream != source_stream:
+                    final_stream = "both"
+            except Exception:
+                pass
+
+        row_data = {
             "post_id": post_id,
             "fullname": p.get("name") or f"t3_{post_id}",
             "subreddit_id": sid,
@@ -287,7 +299,11 @@ class Storage:
             "num_crossposts": p.get("num_crossposts"),
             "total_awards": p.get("total_awards_received"),
             "fetched_at": time.time(),
-        }, preserve_existing_on_null=True)
+        }
+        if final_stream:
+            row_data["source_stream"] = final_stream
+
+        self._upsert("fact_post", row_data, preserve_existing_on_null=True)
         self.upsert_post_media(p, post_id=post_id)
 
     def upsert_comment(self, c: dict, post_id: str, subreddit_id: str | None = None) -> None:
