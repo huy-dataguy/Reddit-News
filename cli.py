@@ -617,8 +617,39 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--installed", action="store_true", help="so sánh digest với unit đã cài")
     sp.add_argument("--require-localhost", action="store_true", help="đảm bảo web bind localhost")
 
+    # WP8 New Commands
+    sp = sub.add_parser("layer-status", help="shows Bronze/Silver/Gold/Serving layer health")
+    sp.set_defaults(func=cmd_layer_status)
+
+    sp = sub.add_parser("migrate", help="runs additive schema migration")
+    sp.add_argument("--apply", action="store_true")
+    sp.set_defaults(func=cmd_migrate)
+
+    sp = sub.add_parser("data-run", help="documented stub for bounded pipeline run")
+    sp.set_defaults(func=cmd_data_run)
+
     return p
 
+def cmd_layer_status(args):
+    from reddit_crawler.serving import ServingRepository
+    print(ServingRepository(args.db).health())
+    return 0
+
+def cmd_migrate(args):
+    if not args.apply:
+        print("Dry run migration")
+        return 0
+    import sqlite3
+    conn = sqlite3.connect(args.db)
+    with open("reddit_crawler/schema.sql") as f:
+        conn.executescript(f.read())
+    conn.close()
+    print("Migration applied")
+    return 0
+
+def cmd_data_run(args):
+    print("Bounded pipeline run (stub)")
+    return 0
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
