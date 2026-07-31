@@ -191,6 +191,7 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         kind=args.kind,
         retry_after_hours=args.retry_after_hours,
         backlog=getattr(args, "backlog", False),
+        stream=getattr(args, "stream", "all"),
     )
     print(
         f"Enrich {result['period']}: {result['comments_fetched']} comment, "
@@ -527,6 +528,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="duyệt toàn bộ post còn thiếu enrichment thay vì chỉ top signal",
     )
+    sp.add_argument("--stream", default="all", choices=["all", "new", "hot"],
+                    help="lọc luồng post để enrich: all, new (24h), hoặc hot (nổi bật)")
     sp.set_defaults(func=cmd_enrich)
 
     sp = sub.add_parser("analyze-post", help="đúc kết một discussion theo PostAnalysis V2")

@@ -1,0 +1,12 @@
+[Unit]
+Description=Drain Reddit comment and resource enrichment backlog for FRESH NEWS stream
+After=network-online.target reddit-crawl.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-enrich-new.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py enrich --kind both --stream new --period year --limit 30 --depth 4 --retry-after-hours 6 --backlog
+TimeoutStartSec=20min
+Nice=10

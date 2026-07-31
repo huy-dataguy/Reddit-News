@@ -144,9 +144,17 @@ def _backlog_candidates(
     kind: str,
     limit: int,
     retry_after_hours: float,
+    stream: str = "all",
 ) -> list[dict[str, Any]]:
-    """Return due work across the whole safe post corpus, not a top-N window."""
+    """Return due work across the safe post corpus with optional stream filter."""
     retry_cutoff = time.time() - max(0.0, retry_after_hours) * 3600
+    now = time.time()
+    stream_filter = ""
+    if stream == "new":
+        stream_filter = f"AND COALESCE(p.created_utc, 0) >= {now - 86400}"
+    elif stream == "hot":
+        stream_filter = f"AND (COALESCE(p.num_comments, 0) >= 10 OR COALESCE(p.score, 0) >= 20)"
+
     comment_due = """
         COALESCE(p.num_comments, 0) > 0
         AND (
@@ -198,6 +206,7 @@ def _backlog_candidates(
         LEFT JOIN enrichment_state resources
           ON resources.post_id = p.post_id AND resources.kind = 'resources'
         WHERE COALESCE(p.over_18, 0) = 0
+          {stream_filter}
           AND ({' OR '.join(due_parts)})
         ORDER BY
           CASE WHEN EXISTS (
@@ -240,14 +249,9 @@ def run_enrichment(
     retry_after_hours: float = 6,
     client: RedditClient | None = None,
     backlog: bool = False,
+    stream: str = "all",
 ) -> dict[str, Any]:
-    """Enrich a bounded set of trending posts with comments and resources.
-
-    ``kind=both`` means Reddit comments plus deterministic resource extraction.
-    Network failures are recorded per post and retried only after
-    ``retry_after_hours``; one failed post does not hold a transaction open or
-    discard successful work for other posts.
-    """
+    """Enrich a bounded set of trending posts with comments and resources."""
     if period not in PERIOD_SECONDS:
         raise ValueError(f"period không hợp lệ: {period}")
     if kind not in {"comments", "resources", "both"}:
@@ -256,7 +260,7 @@ def run_enrichment(
     bounded_limit = max(0, min(int(limit), 200))
     stats: dict[str, Any] = {
         "period": period,
-        "scope": "backlog" if backlog else "trending",
+        "scope": f"backlog-{stream}" if backlog else "trending",
         "candidates": 0,
         "comment_posts_attempted": 0,
         "comment_posts_enriched": 0,
@@ -280,6 +284,7 @@ def run_enrichment(
                 kind=kind,
                 limit=bounded_limit,
                 retry_after_hours=retry_after_hours,
+                stream=stream,
             )
             if backlog
             else trending_posts(
