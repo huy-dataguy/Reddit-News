@@ -2,10 +2,10 @@ import unittest
 import tempfile
 import sqlite3
 from pathlib import Path
-from reddit_crawler.marts import materialize_gold
+from reddit_crawler.serving import ServingRepository
 
-class TestMarts(unittest.TestCase):
-    def test_materialize(self):
+class TestHealthLayers(unittest.TestCase):
+    def test_health(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db = Path(tmpdir) / "test.db"
             conn = sqlite3.connect(db)
@@ -13,5 +13,6 @@ class TestMarts(unittest.TestCase):
                 conn.executescript(f.read())
             conn.close()
             
-            pub_id = materialize_gold(db, "run1", ["day"])
-            self.assertTrue(pub_id.startswith("pub_"))
+            repo = ServingRepository(db)
+            res = repo.health()
+            self.assertIn("silver_posts", res["counts"])

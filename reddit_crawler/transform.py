@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 def transform_pending(db_path: Union[str, Path], bronze_root: Path, *, limit: int = 0) -> RunResult:
     """Transform pending Bronze objects to Silver (idempotent)."""
     started_at = time.time()
-    run_id = f"tx-{int(started_at)}"
+    import uuid
+    run_id = f"tx-{int(started_at)}-{uuid.uuid4().hex[:8]}"
     
     input_count = 0
     output_count = 0
@@ -58,20 +59,21 @@ def transform_pending(db_path: Union[str, Path], bronze_root: Path, *, limit: in
                 # Silver upsert
                 # Need to use storage methods for upserting depending on entity_type
                 # E.g. save_posts, save_comments
-                posts = []
-                comments = []
                 for env in envelopes:
                     if env.entity_type == "post":
-                        posts.append(env.payload)
+                        storage.upsert_post(env.payload)
                     elif env.entity_type == "comment":
-                        comments.append(env.payload)
+                        link_id = env.payload.get("link_id")
+                        from reddit_crawler.storage import _short_id
+                        post_id = _short_id(link_id) if link_id else None
+                        if post_id:
+                            storage.upsert_comment(env.payload, post_id)
+                    elif env.entity_type == "subreddit":
+                        storage.upsert_subreddit(env.payload)
+                    elif env.entity_type == "user":
+                        storage.upsert_author(env.payload)
                         
-                if posts:
-                    storage.save_posts(posts)
-                    output_count += len(posts)
-                if comments:
-                    storage.save_comments(comments)
-                    output_count += len(comments)
+                output_count += len(envelopes)
                     
                 with conn:
                     conn.execute(
