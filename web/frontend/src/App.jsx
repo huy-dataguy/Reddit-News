@@ -494,6 +494,7 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [streamFilter, setStreamFilter] = useState('all')
   const [minComments, setMinComments] = useState(2)
   const [hideRead, setHideRead] = useState(false)
   const [sortBy, setSortBy] = useState('value')
@@ -534,6 +535,13 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
     if (!data?.items) return []
     let list = [...data.items]
 
+    if (streamFilter === 'hot') {
+      list = list.filter(i => (i.num_comments || i.comment_count || 0) >= 10 || (i.score || 0) >= 20 || i.source_stream === 'hot' || i.source_stream === 'both')
+    } else if (streamFilter === 'new') {
+      const nowSec = Date.now() / 1000
+      list = list.filter(i => (nowSec - (i.created_utc || i.generated_at || 0)) <= 86400)
+    }
+
     if (minComments > 0) {
       list = list.filter(i => (i.num_comments || i.comment_count || 0) >= minComments)
     }
@@ -550,7 +558,7 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
     })
 
     return list
-  }, [data, minComments, hideRead, sortBy, readSet])
+  }, [data, streamFilter, minComments, hideRead, sortBy, readSet])
 
   return <>
     <section className="page-intro">
@@ -562,6 +570,7 @@ function KnowledgePage({ savedSet, toggleSave, readSet, markRead }) {
     <DomainChips domains={data?.domains || []} selected={domain} setSelected={handleDomainChange} total={data?.total || 0} />
 
     <SmartFilterToolbar
+      streamFilter={streamFilter} setStreamFilter={setStreamFilter}
       minComments={minComments} setMinComments={setMinComments}
       hideRead={hideRead} setHideRead={setHideRead}
       sortBy={sortBy} setSortBy={setSortBy}
