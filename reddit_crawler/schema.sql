@@ -401,3 +401,7 @@ CREATE TABLE IF NOT EXISTS mart_post_quality (
     quality_score       REAL
 );
 CREATE INDEX IF NOT EXISTS ix_mart_quality_score ON mart_post_quality(quality_score DESC);
+
+-- Migration 14: fact_post.source_stream — provenance của luồng crawl ('new'/'hot'/'both').
+-- DB mới đã có cột qua CREATE TABLE ở trên; DB cũ được ALTER bằng cmd_migrate (guarded).
+INSERT OR IGNORE INTO schema_migration (version, name) VALUES (14, 'add_fact_post_source_stream');

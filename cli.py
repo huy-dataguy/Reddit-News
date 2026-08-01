@@ -714,9 +714,19 @@ def cmd_migrate(args):
         return 0
     import sqlite3
     conn = sqlite3.connect(args.db)
-    with open("reddit_crawler/schema.sql") as f:
-        conn.executescript(f.read())
-    conn.close()
+    try:
+        with open("reddit_crawler/schema.sql") as f:
+            conn.executescript(f.read())
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(fact_post)")}
+        if "source_stream" not in cols:
+            conn.execute("ALTER TABLE fact_post ADD COLUMN source_stream TEXT")
+            conn.execute(
+                "INSERT OR IGNORE INTO schema_migration (version, name) "
+                "VALUES (14, 'add_fact_post_source_stream')"
+            )
+        conn.commit()
+    finally:
+        conn.close()
     print("Migration applied")
     return 0
 

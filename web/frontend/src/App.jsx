@@ -4,7 +4,7 @@ import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BookOpen,
   Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
   Copy, Check, Download, ExternalLink, Eye, EyeOff, FileText, Filter, FilterX, Flame, Gauge, Globe2, Layers3, Lightbulb,
-  ListTree, Menu, MessageCircle, Moon, Radio, Search, Share2, ShieldCheck, Sparkles, Star, Sun, Target,
+  ListTree, Menu, MessageCircle, Moon, Radio, RefreshCw, Search, Share2, ShieldCheck, Sparkles, Star, Sun, Target,
   ThumbsUp, TrendingUp, X, Zap, LayoutGrid, List, BarChart2,
 } from 'lucide-react'
 import { getJSON, withQuery } from './api'
@@ -81,6 +81,7 @@ function AppLink({ href, children, className = '', onNavigate, onClick, ...props
     onClick={event => {
       onClick?.(event)
       if (event.defaultPrevented) return
+      event.preventDefault()
       navigate(href)
       window.scrollTo({ top: 0, behavior: 'smooth' })
       onNavigate?.()
@@ -117,6 +118,15 @@ function AIBuzzModal({ isOpen, onClose }) {
       .finally(() => setLoading(false))
   }, [isOpen])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = event => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   const handleCopy = () => {
@@ -128,7 +138,7 @@ function AIBuzzModal({ isOpen, onClose }) {
   }
 
   return <div className="modal-backdrop" onClick={onClose}>
-    <div className="modal-content" onClick={e => e.stopPropagation()}>
+    <div className="modal-content" onClick={e => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Bản tin công nghệ AI Buzz">
       <div className="modal-header">
         <div>
           <span className="eyebrow"><Sparkles size={13} /> AI BUZZ BULLETIN</span>
@@ -221,6 +231,19 @@ function Loading({ label = 'Đang đọc dữ liệu…' }) {
   return <div className="state-panel"><span className="loader" /><p>{label}</p></div>
 }
 
+function SkeletonGrid({ count = 6 }) {
+  return <div className="skeleton-grid" aria-hidden="true">
+    {Array.from({ length: count }, (_, i) => (
+      <div className="skeleton-card" key={i}>
+        <div className="sk-line sk-30" />
+        <div className="sk-line sk-95" />
+        <div className="sk-line sk-75" />
+        <div className="sk-line sk-50" />
+      </div>
+    ))}
+  </div>
+}
+
 function ErrorState({ message, retry }) {
   return <div className="state-panel error-state">
     <AlertTriangle size={28} /><h2>Không tải được dữ liệu</h2><p>{message}</p>
@@ -228,8 +251,7 @@ function ErrorState({ message, retry }) {
   </div>
 }
 
-function ProviderBadge({ provider, model, isAI, compact = false }) {
-  const local = !isAI || (provider || '').toLowerCase().startsWith('local')
+function ProviderBadge({ provider, model, isAI, compact = false }) {  const local = !isAI || (provider || '').toLowerCase().startsWith('local')
   if (!provider || provider === 'none') {
     return <span className="provider-badge pending"><Clock3 size={12} /> Chưa có briefing</span>
   }
@@ -240,6 +262,14 @@ function ProviderBadge({ provider, model, isAI, compact = false }) {
   }
   return <span className="provider-badge ai"><Bot size={12} />
     {provider}{model ? ` · ${model}` : ''}
+  </span>
+}
+
+function QualityPill({ score }) {
+  if (score == null) return null
+  const level = score >= 70 ? 'excellent' : score >= 50 ? 'good' : score >= 35 ? 'ok' : 'low'
+  return <span className={`quality-pill ${level}`} title={`Chất lượng theo mart dữ liệu: ${Math.round(score)}/100`}>
+    <Gauge size={11} /> {Math.round(score)}
   </span>
 }
 
@@ -330,6 +360,7 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
           {item.domain_name || 'Khác'}
         </span>
         {isHotPost && <span className="hot-pill" title="Bài viết nổi bật đang có lượng thảo luận sôi nổi"><Flame size={12} /> HOT VIRAL</span>}
+        <QualityPill score={item.quality_score} />
       </div>
       <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />
     </div>
@@ -577,22 +608,24 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const [allError, setAllError] = useState('')
 
   // Load Hot Now
-  useEffect(() => {
+  const loadHot = () => {
     setHotLoading(true); setHotError('')
     getJSON('/api/today?period=day&limit=25').then(setHotData)
       .catch(err => setHotError(err.message)).finally(() => setHotLoading(false))
-  }, [])
+  }
+  useEffect(loadHot, [])
 
   // Load All (knowledge)
+  const loadAll = () => {
+    setAllLoading(true); setAllError('')
+    getJSON(withQuery('/api/knowledge/feed', { q: query.trim(), domain, limit, offset }))
+      .then(setAllData)
+      .catch(err => setAllError(err.message))
+      .finally(() => setAllLoading(false))
+  }
   useEffect(() => {
     if (subView !== 'all') return
-    const timer = window.setTimeout(() => {
-      setAllLoading(true); setAllError('')
-      getJSON(withQuery('/api/knowledge/feed', { q: query.trim(), domain, limit, offset }))
-        .then(setAllData)
-        .catch(err => setAllError(err.message))
-        .finally(() => setAllLoading(false))
-    }, 180)
+    const timer = window.setTimeout(loadAll, 180)
     return () => window.clearTimeout(timer)
   }, [subView, query, domain, offset])
 
@@ -684,6 +717,10 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
             {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
             <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
           </button>
+          <button className="toolbar-pill" onClick={loadHot} title="Tải lại dữ liệu Hot Now">
+            <RefreshCw size={13} />
+            <span>Làm mới</span>
+          </button>
         </div>
         <div className="feed-toolbar-right">
           <span className="sort-label"><Filter size={12} /> Sắp xếp:</span>
@@ -696,8 +733,8 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
         </div>
       </div>
 
-      {hotLoading ? <Loading label="Đang tải bài hot hôm nay…" />
-        : hotError ? <ErrorState message={hotError} />
+      {hotLoading ? <SkeletonGrid count={6} />
+        : hotError ? <ErrorState message={hotError} retry={loadHot} />
         : processedHot.length ? (
           <div className="highlight-grid">
             {processedHot.map((item, index) => (
@@ -763,8 +800,8 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
         </div>
       </div>
 
-      {allError ? <ErrorState message={allError} />
-        : allLoading ? <Loading label="Đang lọc kho tri thức…" />
+      {allError ? <ErrorState message={allError} retry={loadAll} />
+        : allLoading ? <SkeletonGrid count={6} />
         : filteredAll.length ? <>
           <div className="knowledge-grid">
             {filteredAll.map(item => (
@@ -830,7 +867,7 @@ function SavedPage({ savedSet, toggleSave, readSet, markRead }) {
       </div>
     </section>
 
-    {loading ? <Loading label="Đang tải danh sách bài đã lưu…" />
+    {loading ? <SkeletonGrid count={6} />
       : data.length ? (
         <div className="knowledge-grid">
           {data.map(item => (
@@ -901,6 +938,7 @@ function TrendRankedItem({ item, rank, maxTrend, isSaved, toggleSave, isRead, ma
           {item.domain_name || 'Khác'}
         </span>
         {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
+        <QualityPill score={item.quality_score} />
       </div>
       <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />
     </div>
@@ -1042,7 +1080,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 
     {/* RANKED GRID */}
     {error ? <ErrorState message={error} retry={load} />
-      : loading ? <Loading label="Đang phân tích xu hướng…" />
+      : loading ? <SkeletonGrid count={6} />
       : filtered.length ? (
         <div className="knowledge-grid">
           {filtered.map((item, index) => (
@@ -1075,7 +1113,23 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 function RoundupStrip({ roundup, hours, setHours }) {
   const [copiedId, setCopiedId] = useState(null)
   const items = roundup?.items || []
-  if (!roundup || items.length === 0) return null
+  if (!roundup) return null
+  if (items.length === 0) {
+    return <section className="roundup-section">
+      <div className="roundup-heading">
+        <span className="eyebrow social-eyebrow"><Zap size={13} /> ROUNDUP THEO GIỜ</span>
+        <div className="roundup-switch">
+          <button className={hours === 3 ? 'active' : ''} onClick={() => setHours(3)}>3 giờ</button>
+          <button className={hours === 24 ? 'active' : ''} onClick={() => setHours(24)}>24 giờ</button>
+        </div>
+      </div>
+      <div className="empty-panel compact-empty">
+        <Clock3 size={26} />
+        <h3>Chưa có bài roundup trong cửa sổ {hours === 24 ? '24 giờ' : '3 giờ'}</h3>
+        <p>Pipeline chạy roundup mỗi giờ; hãy quay lại sau khi đã có đủ tín hiệu.</p>
+      </div>
+    </section>
+  }
 
   const handleCopy = (item) => {
     navigator.clipboard.writeText(item.full_post_text || '').then(() => {
@@ -1124,12 +1178,17 @@ function RoundupStrip({ roundup, hours, setHours }) {
 function SocialStudioPage() {
   const [roundup, setRoundup] = useState(null)
   const [roundupHours, setRoundupHours] = useState(24)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
-  useEffect(() => {
+  const load = () => {
+    setLoading(true); setError('')
     getJSON(`/api/social/roundup?hours=${roundupHours}&top=3`)
       .then(d => setRoundup({ ...d, windowHours: roundupHours }))
-      .catch(() => setRoundup({ items: [], windowHours: roundupHours }))
-  }, [roundupHours])
+      .catch(err => { setError(err.message); setRoundup({ items: [], windowHours: roundupHours }) })
+      .finally(() => setLoading(false))
+  }
+  useEffect(load, [roundupHours])
 
   return <>
     <section className="social-hero">
@@ -1141,6 +1200,8 @@ function SocialStudioPage() {
     </section>
 
     <RoundupStrip roundup={roundup} hours={roundupHours} setHours={setRoundupHours} />
+    {loading && <Loading label="Đang tổng hợp bài đăng social…" />}
+    {!loading && error && <ErrorState message={error} retry={load} />}
   </>
 }
 
@@ -1453,16 +1514,6 @@ function AppShell() {
     fetch(`/api/user/read/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
   }
 
-  useEffect(() => {
-    const onPop = () => setPath(window.location.pathname)
-    window.addEventListener('popstate', onPop)
-    return () => window.removeEventListener('popstate', onPop)
-  }, [])
-
-  useEffect(() => {
-    getJSON('/api/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
-  }, [pathname])
-
   const postMatch = pathname.match(/^\/post\/([^/]+)/)
   const active = postMatch ? 'feed'
     : pathname === '/saved' ? 'saved'
@@ -1471,6 +1522,16 @@ function AppShell() {
     : 'feed'
 
   const currentPostId = postMatch ? decodeURIComponent(postMatch[1]) : null
+
+  useEffect(() => {
+    getJSON('/api/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
+  }, [pathname])
+
+  useEffect(() => {
+    if (!currentPostId) {
+      document.title = 'Reddit Radar — Technology Intelligence'
+    }
+  }, [currentPostId])
 
   return <div className="app-shell">
     <Header active={active} health={health} savedCount={savedSet.size} theme={theme} toggleTheme={toggleTheme} onOpenBuzz={() => setBuzzOpen(true)} />
