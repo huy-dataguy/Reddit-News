@@ -999,11 +999,6 @@ def generate_social_roundup(
     results: list[dict[str, Any]] = []
     store = Storage(db_path, None)
     try:
-        if clusters:
-            store.conn.execute(
-                "DELETE FROM ai_social_roundup WHERE hour_start = ?",
-                (clusters[0]["hour_start"],),
-            )
         for cluster in clusters:
             bundle = _social_roundup_bundle(db_path, cluster)
             bundle["window_hours"] = hours
