@@ -277,6 +277,21 @@ CREATE TABLE IF NOT EXISTS ai_post_analysis_v2 (
     input_hash          TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ai_social_post (
+    post_id             TEXT PRIMARY KEY REFERENCES fact_post(post_id),
+    provider            TEXT NOT NULL,
+    model               TEXT,
+    status              TEXT NOT NULL,
+    title               TEXT,
+    hook                TEXT,
+    full_post_text      TEXT,
+    payload_json        TEXT,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    generated_at        REAL,
+    error               TEXT
+);
+
 -- ============================================================================
 -- 5. GOLD MARTS (DATA MARTS DÙNG PHỤC VỤ WEB & CONSUMERS)
 -- ============================================================================
