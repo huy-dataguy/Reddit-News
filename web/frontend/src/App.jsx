@@ -1139,7 +1139,7 @@ function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
   </article>
 }
 
-function RoundupStrip({ roundup }) {
+function RoundupStrip({ roundup, hours, setHours }) {
   const [copiedId, setCopiedId] = useState(null)
   const items = roundup?.items || []
   if (!roundup || items.length === 0) return null
@@ -1151,14 +1151,19 @@ function RoundupStrip({ roundup }) {
     })
   }
 
+  const windowLabel = roundup.windowHours === 24 ? '24 giờ' : `${roundup.windowHours}h`
   return (
     <section className="roundup-section">
       <div className="roundup-heading">
         <span className="eyebrow social-eyebrow"><Zap size={13} /> ROUNDUP THEO GIỜ</span>
         <span className="roundup-caption">
           {roundup.cached ? 'Đã tổng hợp' : 'Tổng hợp mới'} · gom {items.reduce((s, i) => s + (i.n_posts || i.source_post_ids?.length || 1), 0)} bài Reddit
-          (3h gần nhất) thành {items.length} bài đặc trưng
+          ({windowLabel} gần nhất) thành {items.length} bài đặc trưng
         </span>
+        <div className="roundup-switch">
+          <button className={hours === 3 ? 'active' : ''} onClick={() => setHours(3)}>3 giờ</button>
+          <button className={hours === 24 ? 'active' : ''} onClick={() => setHours(24)}>24 giờ</button>
+        </div>
       </div>
       <div className="roundup-grid">
         {items.map(item => (
@@ -1191,6 +1196,7 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [roundup, setRoundup] = useState(null)
+  const [roundupHours, setRoundupHours] = useState(24)
 
   const load = () => {
     setLoading(true); setError('')
@@ -1199,9 +1205,10 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
   }
   useEffect(load, [period])
   useEffect(() => {
-    getJSON('/api/social/roundup?hours=3&top=3')
-      .then(setRoundup).catch(() => setRoundup({ items: [] }))
-  }, [])
+    getJSON(`/api/social/roundup?hours=${roundupHours}&top=3`)
+      .then(d => setRoundup({ ...d, windowHours: roundupHours }))
+      .catch(() => setRoundup({ items: [], windowHours: roundupHours }))
+  }, [roundupHours])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
@@ -1229,7 +1236,7 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
       </div>
     </section>
 
-    <RoundupStrip roundup={roundup} />
+    <RoundupStrip roundup={roundup} hours={roundupHours} setHours={setRoundupHours} />
 
     <div className="trends-filter-row">
       <SearchBox value={query} setValue={setQuery} placeholder="Lọc chủ đề drama, công nghệ hoặc subreddit…" />
