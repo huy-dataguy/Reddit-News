@@ -630,22 +630,6 @@ def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     }
 
 
-@app.get("/api/social/curated")
-def curated_social_endpoint(
-    period: str = Query("week"),
-    limit: int = Query(20, ge=1, le=100),
-    min_score: float = Query(6.0),
-) -> dict[str, Any]:
-    from reddit_crawler.analytics import curated_social_posts
-    items = curated_social_posts(DB_PATH, period=period, limit=limit, min_curation_score=min_score)
-    return {
-        "period": period,
-        "count": len(items),
-        "min_score": min_score,
-        "items": items,
-    }
-
-
 @app.get("/api/social/roundup")
 def social_roundup_endpoint(
     hours: float = Query(3, ge=0.5, le=24 * 7),

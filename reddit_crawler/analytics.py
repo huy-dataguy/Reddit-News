@@ -254,39 +254,9 @@ def trending_posts(
             "analysis": analysis,
         })
 
-        # Calculate Social Curation Score
-        c_score = float(item["latest_score"] or 0)
-        c_cmts = float(item["latest_comments"] or 0)
-        base_eng = 0.35 * math.log1p(c_score) + 0.65 * math.log1p(c_cmts) + 0.3 * trend_score
-        debate_ratio = c_cmts / max(c_score, 1.0)
-        debate_bonus = min(2.5, debate_ratio * 1.8) if c_cmts >= 15 else 0.0
-        is_ai = (analysis or {}).get("provider") in LLM_PROVIDERS
-        ai_bonus = 2.5 if is_ai else (1.2 if analysis else 0.0)
-        domain_id = canonical_domain_id((analysis or {}).get("domain"), item)
-        domain_bonus = 1.5 if domain_id in ("ai_ml", "devtools", "security") else 0.5
-
-        social_score = round(base_eng + debate_bonus + ai_bonus + domain_bonus, 2)
-        item["social_curation_score"] = social_score
-
         results.append(item)
     results.sort(key=lambda item: (item["composite_value_score"], item["created_utc"] or 0), reverse=True)
     return results[:limit]
-
-
-def curated_social_posts(
-    db_path: str | Path = "reddit.db",
-    *,
-    period: str = "week",
-    limit: int = 20,
-    min_curation_score: float = 6.0,
-) -> list[dict[str, Any]]:
-    posts = trending_posts(db_path, period=period, limit=100)
-    curated = [
-        item for item in posts
-        if item.get("social_curation_score", 0) >= min_curation_score and item.get("latest_comments", 0) >= 8
-    ]
-    curated.sort(key=lambda x: x.get("social_curation_score", 0), reverse=True)
-    return curated[:limit]
 
 
 _VI_TOPIC_STOPWORDS = frozenset({

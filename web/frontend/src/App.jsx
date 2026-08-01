@@ -1072,39 +1072,6 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 // ─────────────────────────────────────────────
 // SOCIAL STUDIO PAGE
 // ─────────────────────────────────────────────
-function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
-  const curScore = item.social_curation_score || 0
-  const view = analysisView(item)
-
-  return <article className={`social-curated-card ${isRead ? 'read-card' : ''}`}>
-    <div className="social-card-topline">
-      <div className="topline-tags">
-        <span className="curation-badge"><Sparkles size={12} /> Social Score: {curScore}</span>
-        <span className="domain-label"><DomainIcon domain={item.domain_id} size={13} /> {item.domain_name}</span>
-        {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
-      </div>
-    </div>
-
-    <h3>
-      <AppLink href={`/post/${item.post_id}`} onClick={() => markRead(item.post_id)}>
-        {view.title}
-      </AppLink>
-    </h3>
-
-    {view.summary && (
-      <div className="social-preview-box">
-        <pre>{view.summary}</pre>
-      </div>
-    )}
-
-    <div className="card-meta">
-      <span><ThumbsUp size={13} /> {compactNumber.format(item.latest_score || item.score || 0)}</span>
-      <span><MessageCircle size={13} /> {compactNumber.format(item.latest_comments || item.num_comments || 0)} bình luận</span>
-      <span><Clock3 size={13} /> {relativeTime(item.created_utc)}</span>
-    </div>
-  </article>
-}
-
 function RoundupStrip({ roundup, hours, setHours }) {
   const [copiedId, setCopiedId] = useState(null)
   const items = roundup?.items || []
@@ -1154,86 +1121,26 @@ function RoundupStrip({ roundup, hours, setHours }) {
   )
 }
 
-function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
-  const [period, setPeriod] = useState('week')
-  const [query, setQuery] = useState('')
-  const [domain, setDomain] = useState('all')
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+function SocialStudioPage() {
   const [roundup, setRoundup] = useState(null)
   const [roundupHours, setRoundupHours] = useState(24)
 
-  const load = () => {
-    setLoading(true); setError('')
-    getJSON(withQuery('/api/social/curated', { period, limit: 30 })).then(setData)
-      .catch(err => setError(err.message)).finally(() => setLoading(false))
-  }
-  useEffect(load, [period])
   useEffect(() => {
     getJSON(`/api/social/roundup?hours=${roundupHours}&top=3`)
       .then(d => setRoundup({ ...d, windowHours: roundupHours }))
       .catch(() => setRoundup({ items: [], windowHours: roundupHours }))
   }, [roundupHours])
 
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase('vi')
-    return (data?.items || []).filter(item => {
-      const matchesDomain = domain === 'all' || item.domain_id === domain
-      const text = `${item.title || ''} ${item.subreddit || ''} ${item.domain_name || ''}`.toLocaleLowerCase('vi')
-      return matchesDomain && (!normalized || text.includes(normalized))
-    })
-  }, [data, domain, query])
-
   return <>
     <section className="social-hero">
       <div className="social-hero-left">
         <span className="eyebrow social-eyebrow"><Share2 size={14} /> SOCIAL VIRAL CONTENT STUDIO</span>
         <h1>Bài đăng Social &amp;<br /><em>Bản tin Truyền thông</em></h1>
-        <p>Thuật toán tự động lọc ra <b>10–15% bài viết có tính tranh luận cao nhất</b> từ Reddit để tạo các bài Social Drama &amp; Bản tin AI Buzz chất lượng cao sẵn sàng xuất bản.</p>
-      </div>
-      <div className="period-switch-block">
-        <span className="period-label">Khoảng thời gian tuyển chọn</span>
-        <div className="period-switch">
-          <button className={period === 'day' ? 'active' : ''} onClick={() => setPeriod('day')}>24 giờ</button>
-          <button className={period === 'week' ? 'active' : ''} onClick={() => setPeriod('week')}>7 ngày</button>
-          <button className={period === 'month' ? 'active' : ''} onClick={() => setPeriod('month')}>30 ngày</button>
-        </div>
+        <p>Gom các bài Reddit cùng chủ đề trong cửa sổ giờ thành bài đăng Social tổng hợp sẵn sàng xuất bản.</p>
       </div>
     </section>
 
     <RoundupStrip roundup={roundup} hours={roundupHours} setHours={setRoundupHours} />
-
-    <div className="trends-filter-row">
-      <SearchBox value={query} setValue={setQuery} placeholder="Lọc chủ đề drama, công nghệ hoặc subreddit…" />
-      <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={filtered.length} />
-    </div>
-
-    <div className="result-line">
-      <span>Đã tuyển chọn <b>{filtered.length}</b> bài viết giá trị cao (Social Curation Score &ge; 6.0)</span>
-      <span>Tự động tạo bởi Gemini AI</span>
-    </div>
-
-    {error ? <ErrorState message={error} retry={load} />
-      : loading ? <Loading label="Thuật toán đang tuyển chọn các bài viết giá trị cao nhất…" />
-      : filtered.length ? (
-        <div className="social-studio-grid">
-          {filtered.map(item => (
-            <CuratedSocialCard
-              key={item.post_id}
-              item={item}
-              isSaved={savedSet.has(item.post_id)}
-              toggleSave={toggleSave}
-              isRead={readSet.has(item.post_id)}
-              markRead={markRead}
-            />
-          ))}
-        </div>
-      ) : <div className="empty-panel">
-        <Share2 size={32} />
-        <h3>Chưa tìm thấy bài viết thỏa mãn tiêu chí tuyển chọn</h3>
-        <p>Thử mở rộng khoảng thời gian hoặc bỏ bộ lọc.</p>
-      </div>}
   </>
 }
 
@@ -1573,7 +1480,7 @@ function AppShell() {
         <Route path="/trends" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/radar" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/signals" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
-        <Route path="/social" element={<SocialStudioPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/social" element={<SocialStudioPage />} />
         <Route path="/saved" element={<SavedPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/post/:postId" element={<PostDetailRoute markRead={markRead} savedSet={savedSet} toggleSave={toggleSave} />} />
         <Route path="/page/:pageNum" element={<FeedPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
