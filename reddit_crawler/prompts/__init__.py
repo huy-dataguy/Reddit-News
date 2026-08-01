@@ -200,13 +200,16 @@ comments + số liệu tổng).
 {STYLE_GUIDE}
 
 PHONG CÁCH:
-• Kể chuyện như người trong cuộc đang đọc được tin nóng — mở bằng chi tiết gây
-  sốc (con số, sự việc, câu hỏi, so sánh bất ngờ), kể tiếp diễn biến, rồi cú
-  rẽ về tác động với anh em làm tech, chốt bằng nhận định "Mình nghĩ…" và câu
-  hỏi cuối.
-• MỖI BÀI MỘT CẤU TRÚC RIÊNG — không lặp khuôn khổ, không theo một sơ đồ cố
-  định. Đa dạng cách mở bài, thứ tự kể, nhịp điệu giữa các bài. Hãy tưởng tượng
-  bạn đang kể lại bằng lời nói, không theo checklist.
+• BẮT BUỘC mở bài theo đúng ``style_hint`` trong INPUT — mỗi cụm được gán một
+  phong cách khác nhau, bài nào mở kiểu nấy, không lặp khuôn khổ giữa các bài.
+  Sau câu mở, kể chuyện tự do theo mạch tự nhiên, không theo checklist.
+• Kể chuyện như người trong cuộc đang đọc được tin nóng: mở bằng chi tiết gây
+  sốc theo style_hint, kể tiếp diễn biến, rồi cú rẽ về tác động với anh em làm
+  tech, chốt bằng nhận định "Mình nghĩ…" và câu hỏi cuối.
+• NGUYÊN LIỆU LÀ CẢ BÀI ĐĂNG LẪN COMMENT: đọc kỹ titles, scores, comments trong
+  INPUT — lồng chi tiết, ví dụ, góc nhìn, tranh cãi từ comment vào câu chuyện
+  để bài sống động và có chiều sâu (KHÔNG trích dẫn u/..., KHÔNG nêu "có comment
+  nói" — chỉ lấy tinh chất chuyển thành lời kể của bạn).
 • Toàn bài gồm 6-7 DÒNG, mỗi dòng 1 CÂU (dòng quan trọng được phép 1-3 câu) —
   mỗi dòng một ý hoàn chỉnh, câu liền mạch.
 • Giọng: hồ hởi, cá tính, gần gũi, cảm thán tự nhiên (🥶 🤯 😎 🚀 😰, dùng vừa
@@ -238,6 +241,7 @@ FEW-SHOT EXAMPLES — 3 bài mẫu với 3 cấu trúc khác nhau:
   "n_posts": 3,
   "total_score": 482,
   "total_comments": 96,
+  "style_hint": "mở bằng một con số gây sốc",
   "posts": [
     {{"post_id": "p1", "title": "DeepSeek drops v4-flash-0731, comparable to Opus on many benchmarks",
       "score": 210, "comments_count": 45,
@@ -269,6 +273,7 @@ FEW-SHOT EXAMPLES — 3 bài mẫu với 3 cấu trúc khác nhau:
   "n_posts": 2,
   "total_score": 315,
   "total_comments": 88,
+  "style_hint": "mở bằng câu chuyện hoàn cảnh của người trong cuộc",
   "posts": [
     {{"post_id": "p1", "title": "Lilian Weng leaves Thinking Machines Lab, rejoins OpenAI within days",
       "score": 210, "comments_count": 60}},
@@ -297,6 +302,7 @@ FEW-SHOT EXAMPLES — 3 bài mẫu với 3 cấu trúc khác nhau:
   "n_posts": 2,
   "total_score": 590,
   "total_comments": 143,
+  "style_hint": "mở bằng cảnh báo thẳng thắn",
   "posts": [
     {{"post_id": "p1", "title": "Claude Opus 5 wins Vending-Bench 2 by price-fixing the vending machine",
       "score": 390, "comments_count": 95}},

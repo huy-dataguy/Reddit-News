@@ -36,14 +36,27 @@ PROMPT_VERSION = DEFAULT_VERSION  # "v3"
 
 def _get_gemini_api_key() -> str:
     global _key_rotation_counter
+    keys = _get_gemini_api_keys()
+    _key_rotation_counter += 1
+    return keys[_key_rotation_counter % len(keys)]
+
+
+def _get_gemini_api_keys() -> list[str]:
     keys = [
         k.strip() for k in [os.environ.get("GEMINI_API_KEY"), os.environ.get("GEMINI_API_KEY_2")]
         if k and k.strip()
     ]
     if not keys:
         raise RuntimeError("Thiếu GEMINI_API_KEY")
-    _key_rotation_counter += 1
-    return keys[_key_rotation_counter % len(keys)]
+    return keys
+
+
+def _is_rate_limited(exc: Exception) -> bool:
+    """True nếu lỗi Gemini là do hết quota/rate limit (429 RESOURCE_EXHAUSTED)."""
+    code = getattr(exc, "code", None) or getattr(getattr(exc, "error", None) or {}, "code", None)
+    if code == 429:
+        return True
+    return "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) or "quota" in str(exc).lower()
 
 
 def _extract_urls(text: str) -> set[str]:
@@ -824,7 +837,18 @@ def analyze_top_posts(
             errors.append(f"{item['post_id']}: {type(exc).__name__}: {str(exc)[:180]}")
 
 
-def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) -> dict:
+_ROUNDUP_STYLES = [
+    "mở bằng một con số gây sốc",
+    "mở bằng câu hỏi đánh trúng nỗi lo của anh em làm tech",
+    "mở bằng câu chuyện hoàn cảnh của người trong cuộc",
+    "mở bằng sự so sánh bất ngờ",
+    "mở bằng cảnh báo thẳng thắn",
+    "mở bằng một chi tiết gây tò mò chưa có lời giải",
+    "mở bằng tin nhỏ nhưng hệ quả cực lớn",
+]
+
+
+def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 8) -> dict:
     """Dựng input cho LLM từ một cụm post cùng chủ đề (đã gom ở analytics)."""
     posts: list[dict] = []
     for post_id in cluster["source_post_ids"]:
@@ -859,6 +883,7 @@ def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) 
         "total_score": cluster["total_score"],
         "total_comments": cluster["total_comments"],
         "window_hours": 3,
+        "style_hint": "",
         "posts": posts,
     }
 
@@ -932,35 +957,50 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_gemini_api_key())
-    response = client.models.generate_content(
-        model=model,
-        contents=(
-            "ROUNDUP_CLUSTER_DATA (một CỤM gồm nhiều bài Reddit cùng chủ đề trong cửa sổ giờ; "
-            "total_score/total_comments là tổng của cả cụm):\n"
-            + json.dumps(bundle, ensure_ascii=False)
-        ),
-        config=types.GenerateContentConfig(
-            system_instruction=build_social_post_prompt("v5"),
-            response_mime_type="application/json",
-            response_schema=SocialDramaPost.model_json_schema(),
-            temperature=0.4,
-        ),
+    prompt_text = (
+        "ROUNDUP_CLUSTER_DATA (một CỤM gồm nhiều bài Reddit cùng chủ đề trong cửa sổ giờ; "
+        "total_score/total_comments là tổng của cả cụm):\n"
+        + json.dumps(bundle, ensure_ascii=False)
     )
-    raw = (response.text or "").strip()
-    if not raw:
-        raise RuntimeError("Gemini không trả social roundup post")
-    object_start = raw.find("{")
-    if object_start < 0:
-        raise RuntimeError("Gemini không trả JSON object cho social roundup post")
-    value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
-    social_post = SocialDramaPost.model_validate(value)
-    usage = response.usage_metadata
-    return (
-        social_post,
-        getattr(usage, "prompt_token_count", 0) or 0,
-        getattr(usage, "candidates_token_count", 0) or 0,
-    )
+    system_instruction = build_social_post_prompt("v5")
+
+    last_error: Exception | None = None
+    keys = _get_gemini_api_keys()
+    for attempt in range(len(keys)):
+        key = keys[(attempt + _key_rotation_counter) % len(keys)]
+        client = genai.Client(api_key=key)
+        try:
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt_text,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    response_mime_type="application/json",
+                    response_schema=SocialDramaPost.model_json_schema(),
+                    temperature=0.4,
+                ),
+            )
+            raw = (response.text or "").strip()
+            if not raw:
+                raise RuntimeError("Gemini không trả social roundup post")
+            object_start = raw.find("{")
+            if object_start < 0:
+                raise RuntimeError("Gemini không trả JSON object cho social roundup post")
+            value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
+            social_post = SocialDramaPost.model_validate(value)
+            usage = response.usage_metadata
+            return (
+                social_post,
+                getattr(usage, "prompt_token_count", 0) or 0,
+                getattr(usage, "candidates_token_count", 0) or 0,
+            )
+        except Exception as exc:
+            last_error = exc
+            if not _is_rate_limited(exc):
+                raise
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Không gọi được Gemini (không có key)")
 
 
 def _is_reddit_url(url: str) -> bool:
@@ -1008,15 +1048,16 @@ def generate_social_roundup(
     ``ai_social_roundup`` theo cluster_id.
     """
     clusters = roundup_social_posts(db_path, hours=hours, top=top)
-    gemini_model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
+    gemini_model = os.environ.get("GEMINI_ROUNDUP_MODEL", "gemini-3.5-flash")
     gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
 
     results: list[dict[str, Any]] = []
     store = Storage(db_path, None)
     try:
-        for cluster in clusters:
+        for cluster_index, cluster in enumerate(clusters):
             bundle = _social_roundup_bundle(db_path, cluster)
             bundle["window_hours"] = hours
+            bundle["style_hint"] = _ROUNDUP_STYLES[cluster_index % len(_ROUNDUP_STYLES)]
             social_post = None
             selected = "local"
             model = None
