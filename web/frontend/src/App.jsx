@@ -5,7 +5,7 @@ import {
   Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
   Copy, Check, Download, ExternalLink, Eye, EyeOff, FileText, Filter, FilterX, Flame, Gauge, Globe2, Layers3, Lightbulb,
   ListTree, Menu, MessageCircle, Moon, Radio, RefreshCw, Search, Share2, ShieldCheck, Sparkles, Star, Sun, Target,
-  ThumbsUp, TrendingUp, X, Zap, LayoutGrid, List, BarChart2,
+  ThumbsUp, TrendingUp, X, Zap, LayoutGrid, List,
 } from 'lucide-react'
 import { getJSON, withQuery } from './api'
 
@@ -896,32 +896,112 @@ function SavedPage({ savedSet, toggleSave, readSet, markRead }) {
 // TRENDS PAGE (replaces Radar, now a real dashboard)
 // ─────────────────────────────────────────────
 
-function DomainBarChart({ domains, total }) {
-  if (!domains || domains.length === 0) return null
-  const maxCount = Math.max(...domains.map(d => d.count), 1)
+function pctDelta(latest, previous) {
+  if (!previous || previous <= 0 || !latest) return null
+  return Math.round(((latest - previous) / previous) * 100)
+}
 
-  return <div className="domain-bar-chart">
-    {domains.map((domain, idx) => {
-      const pct = Math.round((domain.count / maxCount) * 100)
-      const share = total > 0 ? Math.round((domain.count / total) * 100) : 0
-      return <div className="domain-bar-row" key={domain.id}>
-        <div className="domain-bar-label">
-          <DomainIcon domain={domain.id} size={14} />
-          <span>{domain.name}</span>
+function TrendsInsights({ items, totalItems, domain, setDomain }) {
+  const sorted = [...items].sort((a, b) => (b.trend_score ?? 0) - (a.trend_score ?? 0))
+  const star = sorted[0]
+  const momentum = [...items]
+    .sort((a, b) => (b.score_velocity ?? 0) - (a.score_velocity ?? 0))
+    .slice(0, 3)
+  const totalScore = items.reduce((sum, i) => sum + (i.latest_score || i.score || 0), 0)
+  const totalComments = items.reduce((sum, i) => sum + (i.latest_comments || i.num_comments || 0), 0)
+  const quality = items.length
+    ? Math.round(items.reduce((sum, i) => sum + (i.quality_score || 0), 0) / items.length)
+    : 0
+
+  return <>
+    <div className="trends-dashboard">
+      <div className="trends-chart-panel trends-star-panel">
+        <div className="trends-panel-header">
+          <Flame size={16} />
+          <span>Ngôi sao đang hot</span>
+          <small>Top theo trend score</small>
         </div>
-        <div className="domain-bar-track">
-          <div
-            className="domain-bar-fill"
-            style={{ width: `${pct}%`, animationDelay: `${idx * 60}ms` }}
-          />
+        {star ? (
+          <AppLink
+            className="trends-star-card"
+            href={`/post/${star.post_id}`}
+            onClick={() => { recordScrollPosition(); markRead(star.post_id) }}
+          >
+            <div className="trends-star-meta">
+              <span className="domain-label"><DomainIcon domain={star.domain_id} size={13} />{star.domain_name || 'Khác'}</span>
+              {star.subreddit && <span className="sub-tag">r/{star.subreddit}</span>}
+              <QualityPill score={star.quality_score} />
+            </div>
+            <h3>{star.title || star.summary || star.post_id}</h3>
+            <div className="trends-star-stats">
+              <span><ThumbsUp size={13} /> {compactNumber.format(star.latest_score || star.score || 0)}
+                {pctDelta(star.latest_score, star.previous_score) !== null && (
+                  <em className={pctDelta(star.latest_score, star.previous_score) >= 0 ? 'delta-up' : 'delta-down'}>
+                    {pctDelta(star.latest_score, star.previous_score) >= 0 ? '▲' : '▼'} {Math.abs(pctDelta(star.latest_score, star.previous_score))}%
+                  </em>
+                )}
+              </span>
+              <span><MessageCircle size={13} /> {compactNumber.format(star.latest_comments || star.num_comments || 0)}</span>
+              <span><TrendingUp size={13} /> trend {star.trend_score ?? 0}</span>
+            </div>
+          </AppLink>
+        ) : <p className="trends-empty-note">Chưa có tín hiệu trong cửa sổ này.</p>}
+      </div>
+
+      <div className="trends-summary-panel trends-momentum-panel">
+        <div className="trends-panel-header">
+          <Zap size={16} />
+          <span>Đang bùng nổ</span>
+          <small>Vận tốc upvotes</small>
         </div>
-        <div className="domain-bar-meta">
-          <b>{domain.count}</b>
-          <small>{share}%</small>
+        <div className="trends-momentum-list">
+          {momentum.map((item, idx) => (
+            <AppLink
+              key={item.post_id}
+              className="trends-momentum-item"
+              href={`/post/${item.post_id}`}
+              onClick={() => { recordScrollPosition(); markRead(item.post_id) }}
+            >
+              <span className="signal-rank">{idx + 1}</span>
+              <div className="trends-momentum-body">
+                <span className="trends-momentum-title">{item.title || item.summary || item.post_id}</span>
+                <span className="trends-momentum-meta">
+                  {item.subreddit && <span>r/{item.subreddit}</span>}
+                  <span><ThumbsUp size={11} /> {compactNumber.format(item.latest_score || item.score || 0)}</span>
+                  <span><MessageCircle size={11} /> {compactNumber.format(item.latest_comments || item.num_comments || 0)}</span>
+                  {pctDelta(item.latest_score, item.previous_score) !== null && (
+                    <em className={pctDelta(item.latest_score, item.previous_score) >= 0 ? 'delta-up' : 'delta-down'}>
+                      {pctDelta(item.latest_score, item.previous_score) >= 0 ? '▲' : '▼'} {Math.abs(pctDelta(item.latest_score, item.previous_score))}%
+                    </em>
+                  )}
+                </span>
+              </div>
+              <span className="trends-velocity-badge"><TrendingUp size={11} /> {Math.round(item.score_velocity ?? 0)}</span>
+            </AppLink>
+          ))}
         </div>
       </div>
-    })}
-  </div>
+    </div>
+
+    <div className="trends-stats-strip">
+      <div className="trend-stat">
+        <b>{totalItems}</b>
+        <small>bài trending</small>
+      </div>
+      <div className="trend-stat">
+        <b>{compactNumber.format(totalScore)}</b>
+        <small>tổng upvotes</small>
+      </div>
+      <div className="trend-stat">
+        <b>{compactNumber.format(totalComments)}</b>
+        <small>tổng bình luận</small>
+      </div>
+      <div className="trend-stat">
+        <b>{quality}<span className="trend-stat-unit">/100</span></b>
+        <small>chất lượng trung bình</small>
+      </div>
+    </div>
+  </>
 }
 
 function TrendRankedItem({ item, rank, maxTrend, isSaved, toggleSave, isRead, markRead }) {
@@ -1016,55 +1096,9 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
       </div>
     </section>
 
-    {/* DASHBOARD: Domain chart + summary stats */}
+    {/* DASHBOARD: star story + momentum + summary stats */}
     {!loading && !error && data && (
-      <div className="trends-dashboard">
-        <div className="trends-chart-panel">
-          <div className="trends-panel-header">
-            <BarChart2 size={16} />
-            <span>Phân bố theo lĩnh vực</span>
-            <small>{totalItems} bài</small>
-          </div>
-          <DomainBarChart domains={data.domains || []} total={totalItems} />
-        </div>
-
-        <div className="trends-summary-panel">
-          <div className="trends-panel-header">
-            <Sparkles size={16} />
-            <span>Tổng quan {PERIODS.find(([v]) => v === period)?.[1]}</span>
-          </div>
-          <div className="trends-summary-stats">
-            <div className="trend-stat">
-              <b>{totalItems}</b>
-              <small>bài trending</small>
-            </div>
-            <div className="trend-stat">
-              <b>{(data.domains || []).length}</b>
-              <small>lĩnh vực</small>
-            </div>
-            <div className="trend-stat">
-              <b>{compactNumber.format(filtered.reduce((sum, i) => sum + (i.latest_score || i.score || 0), 0))}</b>
-              <small>tổng upvotes</small>
-            </div>
-            <div className="trend-stat">
-              <b>{compactNumber.format(filtered.reduce((sum, i) => sum + (i.latest_comments || i.num_comments || 0), 0))}</b>
-              <small>tổng bình luận</small>
-            </div>
-          </div>
-          <div className="trends-top-domains">
-            <span className="trend-mini-label">Top lĩnh vực:</span>
-            {(data.domains || []).slice(0, 3).map((d, i) => (
-              <button
-                key={d.id}
-                className={`domain-top-chip ${domain === d.id ? 'active' : ''}`}
-                onClick={() => setDomain(domain === d.id ? 'all' : d.id)}
-              >
-                <DomainIcon domain={d.id} size={12} /> {d.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
+      <TrendsInsights items={data.items || []} totalItems={totalItems} domain={domain} setDomain={setDomain} />
     )}
 
     {/* SEARCH + DOMAIN FILTER */}
