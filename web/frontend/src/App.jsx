@@ -1161,6 +1161,23 @@ function RoundupStrip({ roundup, hours, setHours }) {
             </div>
             <h3 className="roundup-title">{item.title}</h3>
             <pre className="roundup-text">{item.full_post_text}</pre>
+            {item.source_links?.length > 0 && (
+              <div className="roundup-links">
+                {item.source_links.map(link => (
+                  <a
+                    key={link.post_id}
+                    className="roundup-chip"
+                    href={`/post/${link.post_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`Mở bài ${link.post_id} trong tab mới`}
+                  >
+                    <ExternalLink size={11} />
+                    {link.subreddit ? `r/${link.subreddit}` : `Bài ${link.post_id.slice(0, 6)}`}
+                  </a>
+                ))}
+              </div>
+            )}
             <button
               className="button primary roundup-copy-btn"
               onClick={() => handleCopy(item)}

@@ -875,41 +875,56 @@ def _truncate_vi(text: str, limit: int = 50) -> str:
 
 
 def local_social_roundup_post(bundle: dict) -> SocialDramaPost:
-    """Tạo bài social tổng hợp cho cả cụm (local fallback, không gọi LLM).
+    """Tạo bài social cho cả cụm (local fallback, không gọi LLM).
 
-    Phong cách v4: 6-7 dòng, mỗi dòng 1 câu, kết bằng câu hỏi tương tác.
-    Link dẫn chứng do ``generate_social_roundup`` thêm ở dòng cuối.
+    Phong cách v5: kể chuyện tự do, 6-7 dòng mỗi dòng 1 câu, không nhắc
+    khung thời gian/bài tiêu biểu/nguồn. Link dạng button do web render
+    từ source_post_ids, không nằm trong nội dung bài.
     """
     topic_vi = bundle.get("topic_vi") or "chủ đề công nghệ"
     total_score = bundle.get("total_score") or 0
     total_comments = bundle.get("total_comments") or 0
     n_posts = bundle.get("n_posts") or 0
-    window_label = f"{int(bundle.get('window_hours', 3))} giờ"
     top_post = (bundle.get("posts") or [{}])[0]
-    title = top_post.get("title") or topic_vi
+    title = _truncate_vi(top_post.get("title") or topic_vi, 120)
     subreddit = top_post.get("subreddit") or ""
 
     headline = f"{_truncate_vi(topic_vi, 70)} 🥶"
-    hook = (
-        f"Trong {window_label} qua, cụm chủ đề này gom {n_posts} bài đăng trên "
-        f"Reddit với tổng cộng {total_score} upvotes và {total_comments} bình luận."
-    )
-    event_details = f"Bài tiêu biểu: {_truncate_vi(title, 130)}."
-    community_counter = (
-        f"Trên r/{subreddit}," if subreddit else "Trên Reddit,"
-    ) + " mọi người chia sẻ rất sôi nổi — có người ủng hộ, có người dè chừng."
-    dev_impact = (
-        "Mình nghĩ đây là tín hiệu đáng để anh em trong nghề để mắt tới — "
-        "theo dõi nguồn chính thức và test kỹ trên workload thật trước khi áp dụng."
-    )
-    open_question = "Anh em gặp tình huống tương tự trong dự án của mình chưa?"
+    score_str = f"{total_score:,}".replace(",", ".")
+    comment_str = f"{total_comments:,}".replace(",", ".")
+    variant = sum(ord(c) for c in topic_vi) % 3
 
-    full_text = "\n".join([headline, hook, event_details, community_counter, dev_impact, open_question])
+    if variant == 0:
+        body = [
+            f"Đang hot rần rần trong giới AI: {_truncate_vi(topic_vi, 60)}.",
+            f"Chỉ riêng chủ đề này, cộng đồng đã đẩy {n_posts} bài lên tổng cộng {score_str} upvotes và {comment_str} bình luận.",
+            f"Điểm nhấn là bài: {title}.",
+        ]
+    elif variant == 1:
+        body = [
+            f"Cả r/{subreddit} đang xôn xao chuyện {_truncate_vi(topic_vi, 60)}" if subreddit else f"Cộng đồng AI đang xôn xao chuyện {_truncate_vi(topic_vi, 60)}",
+            f"{score_str} upvotes và {comment_str} bình luận chỉ trong một cụm {n_posts} bài — không phải chuyện nhỏ đâu anh em ạ.",
+            f"Nội dung nóng nhất là: {title}.",
+        ]
+    else:
+        body = [
+            f"{score_str} upvotes, {comment_str} bình luận — tất cả chỉ vì {_truncate_vi(topic_vi, 60)} 🤯",
+            f"{n_posts} bài đăng cùng một lúc nói về đúng một chuyện, cộng đồng gần như phát sốt.",
+            f"Câu chuyện gốc: {title}.",
+        ]
+
+    body.append(
+        "Mình nghĩ đây là tín hiệu mà anh em làm tech không nên bỏ qua — "
+        "nó đang nói về hướng đi sắp tới của cả ngành."
+    )
+    body.append("Anh em đã gặp tình huống tương tự trong dự án của mình chưa?")
+
+    full_text = "\n".join([headline, *body])
 
     return SocialDramaPost(
-        title=f"⚡ {_truncate_vi(topic_vi)}", hook=hook, event_details=event_details,
-        community_counter=community_counter, dev_impact=dev_impact,
-        open_question=open_question, full_post_text=full_text.strip(),
+        title=f"⚡ {_truncate_vi(topic_vi)}", hook=body[0], event_details=body[1],
+        community_counter=body[2], dev_impact=body[3],
+        open_question=body[4], full_post_text=full_text.strip(),
     )
 
 
@@ -926,7 +941,7 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
             + json.dumps(bundle, ensure_ascii=False)
         ),
         config=types.GenerateContentConfig(
-            system_instruction=build_social_post_prompt(PROMPT_VERSION),
+            system_instruction=build_social_post_prompt("v5"),
             response_mime_type="application/json",
             response_schema=SocialDramaPost.model_json_schema(),
             temperature=0.4,
@@ -1021,12 +1036,6 @@ def generate_social_roundup(
                 social_post = local_social_roundup_post(bundle)
                 selected = "local-fallback" if errors else "local"
 
-            footer = _source_links_footer(bundle)
-            if footer:
-                social_post = social_post.model_copy(
-                    update={"full_post_text": (social_post.full_post_text or "").rstrip() + footer}
-                )
-
             payload = social_post.model_dump(mode="json")
             store.upsert_ai_social_roundup({
                 "cluster_id": cluster["cluster_id"],
@@ -1056,6 +1065,14 @@ def generate_social_roundup(
                 "total_score": cluster["total_score"],
                 "total_comments": cluster["total_comments"],
                 "source_post_ids": cluster["source_post_ids"],
+                "source_links": [
+                    {
+                        "post_id": (p.get("post_id") or ""),
+                        "subreddit": (p.get("subreddit") or ""),
+                    }
+                    for p in (bundle.get("posts") or [])
+                    if (p.get("post_id") or "").strip()
+                ],
                 "provider": selected,
                 "model": model,
             })

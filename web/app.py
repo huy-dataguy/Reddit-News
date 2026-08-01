@@ -665,6 +665,17 @@ def social_roundup_endpoint(
                 (hour_start, top),
             ).fetchall()
             if rows:
+                all_post_ids = sorted({pid for row in rows for pid in _json.loads(row["source_post_ids"] or "[]")})
+                if all_post_ids:
+                    post_rows = conn.execute(
+                        "SELECT p.post_id, d.display_name AS subreddit "
+                        "FROM fact_post p LEFT JOIN dim_subreddit d ON d.subreddit_id = p.subreddit_id "
+                        "WHERE p.post_id IN (%s)" % ",".join("?" * len(all_post_ids)),
+                        tuple(all_post_ids),
+                    ).fetchall()
+                else:
+                    post_rows = []
+                subreddit_by_id = {r["post_id"]: r["subreddit"] for r in post_rows}
                 return {
                     "period": f"{int(hours)}h",
                     "count": len(rows),
@@ -674,6 +685,10 @@ def social_roundup_endpoint(
                         {
                             **dict(row),
                             "source_post_ids": _json.loads(row["source_post_ids"] or "[]"),
+                            "source_links": [
+                                {"post_id": pid, "subreddit": subreddit_by_id.get(pid)}
+                                for pid in _json.loads(row["source_post_ids"] or "[]")
+                            ],
                         }
                         for row in rows
                     ],
@@ -683,12 +698,15 @@ def social_roundup_endpoint(
 
     from reddit_crawler.llm import generate_social_roundup
     items = generate_social_roundup(DB_PATH, hours=hours, top=top)
+    source_items: list[dict[str, Any]] = []
+    for item in items:
+        source_items.append({**item, "source_links": item.get("source_links", [])})
     return {
         "period": f"{int(hours)}h",
-        "count": len(items),
+        "count": len(source_items),
         "hour_start": hour_start,
         "cached": False,
-        "items": items,
+        "items": source_items,
     }
 
 
