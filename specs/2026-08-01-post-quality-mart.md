@@ -1,7 +1,7 @@
 # Spec: Post quality mart + relative-heat ranking for low-engagement sources
 
 - Date: 2026-08-01
-- Status: approved
+- Status: done
 
 ## Problem
 
@@ -84,3 +84,15 @@ improved in place.
 ## Decisions log (append during Build)
 
 ## Outcome (filled at Ship)
+
+- Criterion 1-6 all pass: 220/220 tests (214 old + 6 new: `tests/test_quality_mart.py`,
+  relative-heat + outlier tests in `test_analytics.py`, quality fields in `test_web_api.py`).
+- Shipped in commit `6504b38`: `mart_post_quality` + migration 13, `build_post_quality_mart`
+  in `marts.py`, `cli.py transform-quality`, `trending_posts` mart-aware ranking with
+  fallback, `/api/today` quality fields.
+- Live rollout: backup `/tmp/opencode/reddit-backup-migration13-20260801.db` (migration 12
+  baseline) verified on copy (860 posts, 6 subs), then migration 13 + `transform-quality
+  --hours 72` applied live. Hot Now live ranking now leads with relative winners
+  (e.g. quota-reset discussion at 35x sub-median score, quality 66.0).
+- Deviations: outlier guard applied to `score_percentile` field only (formula fixed by
+  criterion 3); no new feed tab (per approved Non-goals).
