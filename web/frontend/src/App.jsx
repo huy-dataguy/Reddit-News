@@ -112,7 +112,7 @@ function AIBuzzModal({ isOpen, onClose }) {
   useEffect(() => {
     if (!isOpen) return
     setLoading(true)
-    getJSON('/api/buzz?period=month')
+    getJSON('/api/v1/buzz?period=month')
       .then(setBuzzData)
       .catch(() => {})
       .finally(() => setLoading(false))
@@ -631,7 +631,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   // Load Hot Now
   const loadHot = () => {
     setHotLoading(true); setHotError('')
-    getJSON('/api/today?period=day&limit=25').then(setHotData)
+    getJSON('/api/v1/today?period=day&limit=25').then(setHotData)
       .catch(err => setHotError(err.message)).finally(() => setHotLoading(false))
   }
   useEffect(loadHot, [])
@@ -639,7 +639,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   // Load All (knowledge)
   const loadAll = () => {
     setAllLoading(true); setAllError('')
-    getJSON(withQuery('/api/knowledge/feed', { q: query.trim(), domain, limit, offset }))
+    getJSON(withQuery('/api/v1/knowledge/feed', { q: query.trim(), domain, limit, offset }))
       .then(setAllData)
       .catch(err => setAllError(err.message))
       .finally(() => setAllLoading(false))
@@ -854,7 +854,7 @@ function SavedPage({ savedSet, toggleSave, readSet, markRead }) {
 
   const loadSaved = () => {
     setLoading(true)
-    getJSON('/api/user/bookmarks/details')
+    getJSON('/api/v1/user/bookmarks/details')
       .then(res => setData(res?.items || []))
       .catch(() => setData([]))
       .finally(() => setLoading(false))
@@ -1069,7 +1069,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 
   const load = () => {
     setLoading(true); setError('')
-    getJSON(withQuery('/api/trending', { period, limit: 100 })).then(setData)
+    getJSON(withQuery('/api/v1/trending', { period, limit: 100 })).then(setData)
       .catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(load, [period])
@@ -1249,7 +1249,7 @@ function SocialStudioPage() {
 
   const load = () => {
     setLoading(true); setError('')
-    getJSON(`/api/social/roundup?hours=${roundupHours}&top=3`)
+    getJSON(`/api/v1/social/roundup?hours=${roundupHours}&top=3`)
       .then(d => setRoundup({ ...d, windowHours: roundupHours }))
       .catch(err => { setError(err.message); setRoundup({ items: [], windowHours: roundupHours }) })
       .finally(() => setLoading(false))
@@ -1327,7 +1327,7 @@ function PostDetail({ postId, markRead, isSaved, toggleSave }) {
 
   useEffect(() => {
     markRead(postId)
-    getJSON(`/api/posts/${encodeURIComponent(postId)}`).then(item => {
+    getJSON(`/api/v1/posts/${encodeURIComponent(postId)}`).then(item => {
       setPost(item)
       document.title = `${item.analysis?.topic || item.title} — Reddit Radar`
     }).catch(err => setError(err.message))
@@ -1346,7 +1346,7 @@ function PostDetail({ postId, markRead, isSaved, toggleSave }) {
   const handleExportMarkdown = () => {
     if (!post) return
     setExporting(true)
-    getJSON(`/api/posts/${encodeURIComponent(postId)}/export?format=markdown`).then(res => {
+    getJSON(`/api/v1/posts/${encodeURIComponent(postId)}/export?format=markdown`).then(res => {
       if (res?.markdown) {
         const blob = new Blob([res.markdown], { type: 'text/markdown;charset=utf-8' })
         const url = URL.createObjectURL(blob)
@@ -1536,7 +1536,7 @@ function AppShell() {
   })
 
   useEffect(() => {
-    getJSON('/api/user/bookmarks').then(res => {
+    getJSON('/api/v1/user/bookmarks').then(res => {
       if (res?.bookmarks) {
         setSavedSet(prev => {
           const local = new Set([...prev, ...res.bookmarks])
@@ -1544,7 +1544,7 @@ function AppShell() {
           const server = new Set(res.bookmarks)
           for (const id of prev) {
             if (!server.has(id)) {
-              fetch(`/api/user/bookmarks/${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {})
+              fetch(`/api/v1/user/bookmarks/${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {})
             }
           }
           return local
@@ -1552,7 +1552,7 @@ function AppShell() {
       }
     }).catch(() => {})
 
-    getJSON('/api/user/read').then(res => {
+    getJSON('/api/v1/user/read').then(res => {
       if (res?.read) {
         setReadSet(prev => {
           const merged = new Set([...prev, ...res.read])
@@ -1571,7 +1571,7 @@ function AppShell() {
       try { localStorage.setItem('rr_bookmarks', JSON.stringify([...next])) } catch {}
       return next
     })
-    fetch(`/api/user/bookmarks/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
+    fetch(`/api/v1/user/bookmarks/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
   }
 
   const markRead = (postId) => {
@@ -1583,7 +1583,7 @@ function AppShell() {
       try { localStorage.setItem('rr_read_posts', JSON.stringify([...next])) } catch {}
       return next
     })
-    fetch(`/api/user/read/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
+    fetch(`/api/v1/user/read/${encodeURIComponent(postId)}`, { method: 'POST' }).catch(() => {})
   }
 
   const postMatch = pathname.match(/^\/post\/([^/]+)/)
@@ -1596,7 +1596,7 @@ function AppShell() {
   const currentPostId = postMatch ? decodeURIComponent(postMatch[1]) : null
 
   useEffect(() => {
-    getJSON('/api/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
+    getJSON('/api/v1/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
   }, [pathname])
 
   useEffect(() => {

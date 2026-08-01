@@ -6,12 +6,14 @@ import datetime as dt
 import json
 import math
 import os
+import re
 import sqlite3
 import time
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,9 +34,66 @@ ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 DB_PATH = os.environ.get("REDDIT_DB_PATH", "reddit.db")
 
-app = FastAPI(title="Reddit Radar", version="1.0.0")
+app = FastAPI(title="Reddit Radar", version="1.1.0")
+api = APIRouter()
 if (DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=DIST / "assets"), name="assets")
+
+# ── Security constants / helpers ────────────────────────────────────────────
+_POST_ID_RE = re.compile(r"^(t[13]_)?[a-z0-9]{2,12}$")
+_MAX_QUERY_LEN = 200
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": (
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; connect-src 'self'; font-src 'self'; "
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    ),
+}
+_RATE_LIMIT_ENABLED = os.environ.get("WEB_RATE_LIMIT", "on").lower() != "off"
+_WRITE_TOKEN = os.environ.get("WEB_WRITE_TOKEN", "") or ""
+_CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+# (rate / giây, burst) — refill liên tục, burst là "token tối đa tích được"
+_RATE_RULES = {
+    "GET": (2.0, 240.0),
+    "POST": (0.5, 30.0),
+}
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+
+def _client_ip(request: Request) -> str:
+    """IP thật từ kết nối trực tiếp; không bao giờ tin X-Forwarded-For của client."""
+    host = request.client.host if request.client else ""
+    return host or "unknown"
+
+
+def _is_loopback(ip: str) -> bool:
+    return ip in _LOOPBACK_HOSTS or ip.startswith("127.")
+
+
+class _RateLimiter:
+    """Token bucket đơn giản theo IP; chỉ tin IP kết nối trực tiếp."""
+
+    def __init__(self) -> None:
+        self._buckets: dict[str, dict[str, tuple[float, float]]] = {}
+
+    def allow(self, ip: str, method: str, now: float | None = None) -> tuple[bool, float]:
+        now = time.time() if now is None else now
+        rate, burst = _RATE_RULES.get(method, _RATE_RULES["GET"])
+        buckets = self._buckets.setdefault(ip, {})
+        tokens, last = buckets.get(method, (burst, now))
+        tokens = min(burst, tokens + (now - last) * rate)
+        if tokens >= 1.0:
+            buckets[method] = (tokens - 1.0, now)
+            return True, 0.0
+        buckets[method] = (tokens, now)
+        retry_after = (1.0 - tokens) / rate if rate > 0 else burst
+        return False, retry_after
+
+
+_rate_limiter = _RateLimiter()
 
 
 def _connect_readonly() -> sqlite3.Connection:
@@ -54,6 +113,66 @@ def _connect_write() -> sqlite3.Connection:
     return conn
 
 
+@app.middleware("http")
+async def security_middleware(request: Request, call_next: Any) -> Response:
+    ip = _client_ip(request)
+    method = request.method.upper()
+    path = request.url.path
+
+    # CORS preflight
+    if method == "OPTIONS":
+        origin = request.headers.get("origin", "")
+        if _CORS_ORIGINS and origin in _CORS_ORIGINS:
+            return Response(status_code=204, headers={
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "X-API-Token, Content-Type",
+                "Access-Control-Max-Age": "3600",
+            })
+        return Response(status_code=204)
+
+    # Rate limit (trước khi chạm DB)
+    if _RATE_LIMIT_ENABLED and path.startswith("/api/"):
+        allowed, retry_after = _rate_limiter.allow(ip, method)
+        if not allowed:
+            return Response(
+                status_code=429,
+                headers={"Retry-After": str(int(retry_after) + 1)},
+                content=json.dumps({
+                    "error": "rate_limited",
+                    "retry_after": int(retry_after) + 1,
+                }).encode("utf-8"),
+                media_type="application/json",
+            )
+
+    # Write guard: mọi POST /api đều cần token khi không đến từ loopback
+    if method == "POST" and path.startswith("/api/"):
+        if not _is_loopback(ip):
+            provided = request.headers.get("X-API-Token", "")
+            if not _WRITE_TOKEN or provided != _WRITE_TOKEN:
+                return Response(
+                    status_code=401,
+                    content=json.dumps({"error": "unauthorized"}).encode("utf-8"),
+                    media_type="application/json",
+                )
+
+    response = await call_next(request)
+
+    for header, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    if _CORS_ORIGINS:
+        origin = request.headers.get("origin", "")
+        if origin in _CORS_ORIGINS:
+            response.headers.setdefault("Access-Control-Allow-Origin", origin)
+    return response
+
+
+def _require_valid_post_id(post_id: str) -> str:
+    if not _POST_ID_RE.match(post_id or ""):
+        raise HTTPException(status_code=400, detail="post_id không hợp lệ")
+    return post_id
+
+
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,),
@@ -63,7 +182,8 @@ def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
 def _table_count(conn: sqlite3.Connection, table: str, where: str = "") -> int:
     if not _table_exists(conn, table):
         return 0
-    return int(conn.execute(f"SELECT COUNT(*) FROM {table} {where}").fetchone()[0])
+    row = conn.execute(f"SELECT COUNT(*) FROM {table} {where}").fetchone()
+    return int(row[0]) if row else 0
 
 
 def _parse_payload(raw: str | None) -> dict[str, Any] | None:
@@ -348,6 +468,7 @@ def _health_snapshot() -> dict[str, Any]:
     status = "healthy" if all(stage["status"] == "healthy" for stage in stages.values()) else "degraded"
     return {
         "status": status,
+        "api_version": "v1",
         "database": DB_PATH,
         "checked_at": time.time(),
         "counts": counts,
@@ -370,7 +491,7 @@ def service_worker() -> FileResponse:
     return FileResponse(DIST / "sw.js", media_type="application/javascript")
 
 
-@app.get("/api/health")
+@api.get("/health")
 def health() -> dict[str, Any]:
     try:
         return _health_snapshot()
@@ -378,7 +499,7 @@ def health() -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=f"Database chưa sẵn sàng: {exc}") from exc
 
 
-@app.get("/api/stats")
+@api.get("/stats")
 def stats() -> dict[str, Any]:
     values = database_stats(DB_PATH)
     snapshot = _health_snapshot()
@@ -392,7 +513,7 @@ def stats() -> dict[str, Any]:
     return values
 
 
-@app.get("/api/trending")
+@api.get("/trending")
 def trending(
     period: str = Query("day"),
     limit: int = Query(30, ge=1, le=100),
@@ -428,7 +549,7 @@ def trending(
     }
 
 
-@app.get("/api/digests/latest")
+@api.get("/digests/latest")
 def digest(period: str = Query("3h")) -> dict[str, Any]:
     if period not in PERIOD_SECONDS:
         raise HTTPException(status_code=400, detail=f"period hợp lệ: {', '.join(PERIOD_SECONDS)}")
@@ -442,7 +563,7 @@ def digest(period: str = Query("3h")) -> dict[str, Any]:
     return item
 
 
-@app.get("/api/today")
+@api.get("/today")
 def today(
     period: str = Query("day"),
     limit: int = Query(8, ge=1, le=100),
@@ -532,7 +653,7 @@ def today(
     }
 
 
-@app.get("/api/knowledge/feed")
+@api.get("/knowledge/feed")
 def knowledge_feed(
     domain: str | None = Query(None),
     q: str = Query("", max_length=200),
@@ -542,7 +663,7 @@ def knowledge_feed(
     return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset)
 
 
-@app.get("/api/knowledge/feed/v2")
+@api.get("/knowledge/feed/v2")
 def knowledge_feed_v2(
     domain: str | None = Query(None),
     q: str = Query("", max_length=200),
@@ -553,8 +674,9 @@ def knowledge_feed_v2(
     return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset)
 
 
-@app.get("/api/knowledge/{post_id}")
+@api.get("/knowledge/{post_id}")
 def knowledge_detail(post_id: str) -> dict[str, Any]:
+    _require_valid_post_id(post_id)
     conn = _connect_readonly()
     try:
         items = _unified_knowledge_items(conn, post_id)
@@ -565,14 +687,15 @@ def knowledge_detail(post_id: str) -> dict[str, Any]:
     return items[0]
 
 
-@app.get("/api/knowledge/{post_id}/v2")
+@api.get("/knowledge/{post_id}/v2")
 def knowledge_detail_v2(post_id: str) -> dict[str, Any]:
     """Compatibility alias for clients that previously requested the V2 route."""
     return knowledge_detail(post_id)
 
 
-@app.get("/api/posts/{post_id}")
+@api.get("/posts/{post_id}")
 def detail(post_id: str) -> dict[str, Any]:
+    _require_valid_post_id(post_id)
     item = post_detail(DB_PATH, post_id)
     if not item:
         raise HTTPException(status_code=404, detail="Không tìm thấy post")
@@ -590,8 +713,9 @@ def detail(post_id: str) -> dict[str, Any]:
     return item
 
 
-@app.get("/api/posts/{post_id}/export")
+@api.get("/posts/{post_id}/export")
 def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]:
+    _require_valid_post_id(post_id)
     if format != "markdown":
         raise HTTPException(status_code=400, detail="Chỉ hỗ trợ format=markdown")
     detail_data = post_detail(DB_PATH, post_id, comment_limit=0) or {}
@@ -612,7 +736,7 @@ def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]
     return {"post_id": post_id, "format": format, "markdown": markdown}
 
 
-@app.get("/api/buzz")
+@api.get("/buzz")
 def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     items = trending_posts(DB_PATH, period=period, limit=10)
 
@@ -647,7 +771,7 @@ def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     }
 
 
-@app.get("/api/social/roundup")
+@api.get("/social/roundup")
 def social_roundup_endpoint(
     hours: float = Query(3, ge=0.5, le=24 * 7),
     top: int = Query(3, ge=1, le=10),
@@ -714,7 +838,7 @@ def social_roundup_endpoint(
     return {"period": f"{int(hours)}h", "count": 0, "hour_start": 0, "cached": True, "stale": True, "items": []}
 
 
-@app.get("/api/resources")
+@api.get("/resources")
 def resources(
     kind: str = Query("all"),
     limit: int = Query(50, ge=1, le=200),
@@ -723,7 +847,7 @@ def resources(
     return {"kind": kind, "count": len(items), "items": items}
 
 
-@app.get("/api/user/bookmarks")
+@api.get("/user/bookmarks")
 def get_user_bookmarks() -> dict[str, Any]:
     """Get list of bookmarked post IDs from SQLite database."""
     path = Path(DB_PATH).resolve()
@@ -739,7 +863,7 @@ def get_user_bookmarks() -> dict[str, Any]:
         conn.close()
 
 
-@app.get("/api/user/bookmarks/details")
+@api.get("/user/bookmarks/details")
 def get_user_bookmark_details() -> dict[str, Any]:
     """Get detailed post objects for all bookmarked posts."""
     conn = _connect_readonly()
@@ -789,9 +913,10 @@ def get_user_bookmark_details() -> dict[str, Any]:
 
 
 
-@app.post("/api/user/bookmarks/{post_id}")
+@api.post("/user/bookmarks/{post_id}")
 def toggle_user_bookmark(post_id: str) -> dict[str, Any]:
     """Save or toggle bookmark in SQLite database."""
+    _require_valid_post_id(post_id)
     conn = _connect_write()
     try:
         conn.execute("""
@@ -814,7 +939,7 @@ def toggle_user_bookmark(post_id: str) -> dict[str, Any]:
         conn.close()
 
 
-@app.get("/api/user/read")
+@api.get("/user/read")
 def get_user_read_posts() -> dict[str, Any]:
     """Get list of read post IDs from SQLite database."""
     path = Path(DB_PATH).resolve()
@@ -830,9 +955,10 @@ def get_user_read_posts() -> dict[str, Any]:
         conn.close()
 
 
-@app.post("/api/user/read/{post_id}")
+@api.post("/user/read/{post_id}")
 def mark_user_read_post(post_id: str) -> dict[str, Any]:
     """Mark a post as read in SQLite database."""
+    _require_valid_post_id(post_id)
     conn = _connect_write()
     try:
         conn.execute("""
@@ -853,6 +979,11 @@ def mark_user_read_post(post_id: str) -> dict[str, Any]:
         return {"post_id": post_id, "status": "read"}
     finally:
         conn.close()
+
+
+# ── API versioning: /api/v1/* (chính thức), /api/* (legacy alias) ──────────
+app.include_router(api, prefix="/api/v1")
+app.include_router(api, prefix="/api")
 
 
 @app.get("/{full_path:path}", include_in_schema=False, response_model=None)

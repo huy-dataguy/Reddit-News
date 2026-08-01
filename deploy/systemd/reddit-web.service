@@ -11,5 +11,27 @@ ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/pyth
 Restart=on-failure
 RestartSec=5
 
+# ── Hardening (spec 2026-08-01-backend-api-hardening) ──────────────────────
+# Chỉ dùng flags mà systemd user instance hỗ trợ; các flag đòi root
+# (ProtectKernelModules, ProtectControlGroups, PrivateDevices, ProtectClock,
+# ProtectKernelLogs, RestrictSUIDSGID, SystemCallArchitectures) khiến service
+# fail 218/CAPABILITIES trong --user nên bị loại (kiểm chứng bằng bisect).
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=yes
+RestrictNamespaces=yes
+MemoryDenyWriteExecute=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
+KeyringMode=private
+# Web ghi user_bookmark / user_read_state vào reddit.db
+ReadWritePaths=/home/dataguy/Documents/01 - Projects/_Personal/Reddit/reddit.db
+
 [Install]
 WantedBy=default.target
