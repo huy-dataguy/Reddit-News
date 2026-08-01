@@ -351,11 +351,6 @@ def favicon() -> Response:
 
 
 @app.get("/", include_in_schema=False)
-@app.get("/today", include_in_schema=False)
-@app.get("/signals", include_in_schema=False)
-@app.get("/radar", include_in_schema=False)
-@app.get("/knowledge", include_in_schema=False)
-@app.get("/saved", include_in_schema=False)
 def home() -> FileResponse:
     return FileResponse(DIST / "index.html")
 
@@ -363,11 +358,6 @@ def home() -> FileResponse:
 @app.get("/sw.js", include_in_schema=False)
 def service_worker() -> FileResponse:
     return FileResponse(DIST / "sw.js", media_type="application/javascript")
-
-
-@app.get("/post/{post_id}", include_in_schema=False)
-def post_page(post_id: str) -> FileResponse:
-    return FileResponse(DIST / "index.html")
 
 
 @app.get("/api/health")
@@ -898,4 +888,12 @@ def mark_user_read_post(post_id: str) -> dict[str, Any]:
         return {"post_id": post_id, "status": "read"}
     finally:
         conn.close()
+
+
+@app.get("/{full_path:path}", include_in_schema=False, response_model=None)
+def spa_fallback(full_path: str) -> FileResponse | Response:
+    """Serve the SPA for client-side routes; keep unknown /api paths as 404 JSON."""
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(DIST / "index.html")
 

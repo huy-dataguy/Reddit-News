@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BookOpen,
   Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
@@ -72,23 +73,20 @@ function useRestoreScroll(dependency) {
   }, [dependency])
 }
 
-function navigate(path) {
-  const current = window.location.pathname + window.location.search
-  if (current === path) return
-  window.history.pushState({}, '', path)
-  window.dispatchEvent(new PopStateEvent('popstate'))
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-
 function AppLink({ href, children, className = '', onNavigate, onClick, ...props }) {
-  return <a href={href} className={className} onClick={event => {
-    onClick?.(event)
-    if (!event.metaKey && !event.ctrlKey && !event.shiftKey && event.button === 0) {
-      event.preventDefault()
+  const navigate = useNavigate()
+  return <Link
+    to={href}
+    className={className}
+    onClick={event => {
+      onClick?.(event)
+      if (event.defaultPrevented) return
       navigate(href)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
       onNavigate?.()
-    }
-  }} {...props}>{children}</a>
+    }}
+    {...props}
+  >{children}</Link>
 }
 
 function Logo() {
@@ -477,18 +475,17 @@ function Pagination({ offset, limit, total, hasMore, onPageChange }) {
   )
 }
 
-function parseUrlFeedState(limit = 12) {
-  const params = new URLSearchParams(window.location.search)
-  const path = window.location.pathname
+function parseUrlFeedState(limit, searchParams, pathname) {
+  const params = searchParams
 
-  const pageMatch = path.match(/^\/page\/(\d+)/)
+  const pageMatch = pathname.match(/^\/page\/(\d+)/)
   const pageFromPath = pageMatch ? parseInt(pageMatch[1], 10) : null
 
   const page = pageFromPath || parseInt(params.get('page') || '0', 10)
   const viewParam = params.get('view')
 
   let view = 'hot'
-  if (viewParam === 'all' || path === '/browse' || path === '/knowledge' || pageMatch || page > 1) {
+  if (viewParam === 'all' || pathname === '/browse' || pathname === '/knowledge' || pageMatch || page > 1) {
     view = 'all'
   } else if (viewParam === 'hot') {
     view = 'hot'
@@ -509,11 +506,14 @@ function parseUrlFeedState(limit = 12) {
 // ─────────────────────────────────────────────
 function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const limit = 12
+  const [searchParams, setSearchParams] = useSearchParams()
+  const { pathname } = useLocation()
+  const initial = useMemo(() => parseUrlFeedState(limit, searchParams, pathname), [limit, searchParams, pathname])
 
-  const [subView, setSubViewState] = useState(() => parseUrlFeedState(limit).view)
-  const [query, setQuery] = useState(() => parseUrlFeedState(limit).q)
-  const [domain, setDomainState] = useState(() => parseUrlFeedState(limit).domain)
-  const [offset, setOffsetState] = useState(() => parseUrlFeedState(limit).offset)
+  const [subView, setSubViewState] = useState(() => initial.view)
+  const [query, setQuery] = useState(() => initial.q)
+  const [domain, setDomainState] = useState(() => initial.domain)
+  const [offset, setOffsetState] = useState(() => initial.offset)
   const [hideRead, setHideRead] = useState(false)
   const [sortBy, setSortBy] = useState('value')
 
@@ -524,12 +524,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     if (pageNum > 1) params.page = pageNum
     if (newQuery && newQuery.trim()) params.q = newQuery.trim()
     if (newDomain && newDomain !== 'all') params.domain = newDomain
-
-    const targetUrl = withQuery('/', params)
-    const currentUrl = window.location.pathname + window.location.search
-    if (targetUrl !== currentUrl) {
-      window.history.pushState({}, '', targetUrl)
-    }
+    setSearchParams(params)
   }
 
   const setSubView = (val) => {
@@ -562,18 +557,14 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     updateFeedUrl(subView, 0, val, domain)
   }
 
-  // Listen to browser back/forward URL changes
+  // Sync local state when the URL changes (navigation, back/forward)
   useEffect(() => {
-    const syncFromUrl = () => {
-      const parsed = parseUrlFeedState(limit)
-      setSubViewState(parsed.view)
-      setQuery(parsed.q)
-      setDomainState(parsed.domain)
-      setOffsetState(parsed.offset)
-    }
-    window.addEventListener('popstate', syncFromUrl)
-    return () => window.removeEventListener('popstate', syncFromUrl)
-  }, [])
+    const parsed = parseUrlFeedState(limit, searchParams, pathname)
+    setSubViewState(parsed.view)
+    setQuery(parsed.q)
+    setDomainState(parsed.domain)
+    setOffsetState(parsed.offset)
+  }, [searchParams, pathname])
 
   // Hot Now data
   const [hotData, setHotData] = useState(null)
@@ -1359,6 +1350,7 @@ function SocialStoryPanel({ postId }) {
 }
 
 function PostDetail({ postId, markRead, isSaved, toggleSave }) {
+  const navigate = useNavigate()
   const [post, setPost] = useState(null)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
@@ -1555,7 +1547,11 @@ function Footer({ health }) {
 }
 
 export default function App() {
-  const [path, setPath] = useState(window.location.pathname)
+  return <BrowserRouter><AppShell /></BrowserRouter>
+}
+
+function AppShell() {
+  const { pathname } = useLocation()
   const [health, setHealth] = useState(null)
   const [buzzOpen, setBuzzOpen] = useState(false)
 
@@ -1645,13 +1641,13 @@ export default function App() {
 
   useEffect(() => {
     getJSON('/api/health').then(setHealth).catch(() => setHealth({ status: 'degraded' }))
-  }, [path])
+  }, [pathname])
 
-  const postMatch = path.match(/^\/post\/([^/]+)/)
+  const postMatch = pathname.match(/^\/post\/([^/]+)/)
   const active = postMatch ? 'feed'
-    : path === '/saved' ? 'saved'
-    : path === '/social' ? 'social'
-    : ['/trends', '/radar', '/signals'].includes(path) ? 'trends'
+    : pathname === '/saved' ? 'saved'
+    : pathname === '/social' ? 'social'
+    : ['/trends', '/radar', '/signals'].includes(pathname) ? 'trends'
     : 'feed'
 
   const currentPostId = postMatch ? decodeURIComponent(postMatch[1]) : null
@@ -1659,13 +1655,24 @@ export default function App() {
   return <div className="app-shell">
     <Header active={active} health={health} savedCount={savedSet.size} theme={theme} toggleTheme={toggleTheme} onOpenBuzz={() => setBuzzOpen(true)} />
     <main className={`page-shell ${postMatch ? 'detail-shell' : ''}`}>
-      {postMatch ? <PostDetail postId={currentPostId} markRead={markRead} isSaved={savedSet.has(currentPostId)} toggleSave={toggleSave} />
-        : active === 'saved' ? <SavedPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
-        : active === 'social' ? <SocialStudioPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
-        : active === 'trends' ? <TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />
-        : <FeedPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />}
+      <Routes>
+        <Route path="/" element={<FeedPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/trends" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/radar" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/signals" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/social" element={<SocialStudioPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/saved" element={<SavedPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="/post/:postId" element={<PostDetailRoute markRead={markRead} savedSet={savedSet} toggleSave={toggleSave} />} />
+        <Route path="/page/:pageNum" element={<FeedPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </main>
     <Footer health={health} />
     <AIBuzzModal isOpen={buzzOpen} onClose={() => setBuzzOpen(false)} />
   </div>
+}
+
+function PostDetailRoute({ markRead, savedSet, toggleSave }) {
+  const { postId } = useParams()
+  return <PostDetail postId={postId} markRead={markRead} isSaved={savedSet.has(postId)} toggleSave={toggleSave} />
 }
