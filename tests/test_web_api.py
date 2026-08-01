@@ -186,6 +186,24 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(response.json()["comments"], [])
         self.assertEqual(after, before)
 
+    def test_user_bookmark_details_returns_full_post_items(self) -> None:
+        res1 = self.client.post("/api/user/bookmarks/ai")
+        self.assertEqual(res1.status_code, 200)
+        self.assertTrue(res1.json()["saved"])
+
+        res2 = self.client.post("/api/user/bookmarks/sec")
+        self.assertEqual(res2.status_code, 200)
+        self.assertTrue(res2.json()["saved"])
+
+        details = self.client.get("/api/user/bookmarks/details")
+        self.assertEqual(details.status_code, 200)
+        body = details.json()
+        self.assertEqual(body["bookmarks"], ["sec", "ai"])
+        self.assertEqual(body["count"], 2)
+        item_ids = [item["post_id"] for item in body["items"]]
+        self.assertEqual(item_ids, ["sec", "ai"])
+
+
     def _count(self, table: str) -> int:
         import sqlite3
 

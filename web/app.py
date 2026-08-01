@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -345,11 +345,17 @@ def _health_snapshot() -> dict[str, Any]:
     }
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    return Response(status_code=204)
+
+
 @app.get("/", include_in_schema=False)
 @app.get("/today", include_in_schema=False)
 @app.get("/signals", include_in_schema=False)
 @app.get("/radar", include_in_schema=False)
 @app.get("/knowledge", include_in_schema=False)
+@app.get("/saved", include_in_schema=False)
 def home() -> FileResponse:
     return FileResponse(DIST / "index.html")
 
@@ -439,7 +445,7 @@ def digest(period: str = Query("3h")) -> dict[str, Any]:
 @app.get("/api/today")
 def today(
     period: str = Query("day"),
-    limit: int = Query(8, ge=1, le=20),
+    limit: int = Query(8, ge=1, le=100),
 ) -> dict[str, Any]:
     if period not in PERIOD_SECONDS:
         raise HTTPException(status_code=400, detail=f"period hợp lệ: {', '.join(PERIOD_SECONDS)}")
@@ -599,6 +605,103 @@ def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]
     return {"post_id": post_id, "format": format, "markdown": markdown}
 
 
+@app.get("/api/posts/{post_id}/social")
+def social_post_endpoint(post_id: str) -> dict[str, Any]:
+    detail_data = post_detail(DB_PATH, post_id, comment_limit=20)
+    if not detail_data:
+        raise HTTPException(status_code=404, detail="Không tìm thấy post")
+
+    conn = _connect_readonly()
+    try:
+        if _table_exists(conn, "ai_social_post"):
+            row = conn.execute("SELECT * FROM ai_social_post WHERE post_id=?", (post_id,)).fetchone()
+            if row and row["full_post_text"]:
+                return dict(row)
+    finally:
+        conn.close()
+
+    # Generate via LLM / local module fallback
+    from reddit_crawler.llm import generate_social_drama_post
+    try:
+        return generate_social_drama_post(DB_PATH, post_id)
+    except Exception:
+        title = detail_data.get("title") or ""
+        sub = detail_data.get("subreddit") or "tech"
+        score = detail_data.get("score") or 0
+        comments = detail_data.get("num_comments") or 0
+        text = f"""⚡ Tranh luận kỹ thuật: {title[:70]}
+
+Chủ đề thu hút {score} upvotes và {comments} bình luận sôi nổi trên r/{sub}.
+
+📌 TỔNG QUAN VẤN ĐỀ:
+• Chủ đề thu hút nhiều ý kiến thảo luận về tính thực tiễn và tác động tới quy trình phát triển phần mềm.
+• Các kỹ sư chia sẻ trải nghiệm thực tế và đưa ra khuyến nghị kiểm soát rủi ro.
+
+💡 BÀI HỌC KỸ THUẬT:
+Cần đánh giá kỹ tính ổn định, chi phí và luồng thực thi trước khi áp dụng tự động hóa vào sản phẩm.
+
+👇 Anh em có gặp vấn đề tương tự trong công việc hàng ngày không?
+
+#RedditRadar #TechInsights #{sub}"""
+        return {
+            "post_id": post_id,
+            "title": f"Tranh luận kỹ thuật: {title[:70]} ⚡",
+            "full_post_text": text.strip(),
+            "provider": "local",
+        }
+
+
+@app.get("/api/buzz")
+def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
+    items = trending_posts(DB_PATH, period=period, limit=10)
+
+    period_label = "THÁNG 6/2026" if period == "month" else "TUẦN NÀY"
+    stories = []
+    bulletin_lines = [
+        f"★ BẢN TIN CÔNG NGHỆ {period_label} | AI BUZZ {period_label}\n",
+        "Cùng Reddit Radar điểm qua một số bản tin công nghệ nổi bật về Trí tuệ nhân tạo (AI) và Lập trình:\n",
+    ]
+
+    badges = ["🔹", "🔥", "⚡", "🚀", "💡", "🛡️", "🤖"]
+    for i, item in enumerate(items[:6]):
+        badge = badges[i % len(badges)]
+        title = item.get("analysis", {}).get("topic") or item.get("title") or "Hot Tech Story"
+        summary = item.get("analysis", {}).get("verdict") or item.get("analysis", {}).get("summary") or "Thảo luận nổi bật với lượng tương tác lớn từ cộng đồng."
+        sub = item.get("subreddit") or "tech"
+        score = item.get("latest_score") or item.get("score") or 0
+
+        stories.append({
+            "badge": badge, "headline": title, "snippet": summary[:220],
+            "post_id": item.get("post_id"), "subreddit": sub, "score": score,
+        })
+        bulletin_lines.append(f"{badge} **{title}**\n   {summary[:240]}\n")
+
+    bulletin_lines.append("\n👉 Anh em ấn tượng nhất với tin tức nào? Để lại ý kiến bàn luận bên dưới nhé!\n#AIBuzz #RedditRadar #TechNews")
+
+    return {
+        "period": period,
+        "title": f"★ BẢN TIN CÔNG NGHỆ {period_label} | AI BUZZ",
+        "full_bulletin_text": "\n".join(bulletin_lines),
+        "stories": stories,
+    }
+
+
+@app.get("/api/social/curated")
+def curated_social_endpoint(
+    period: str = Query("week"),
+    limit: int = Query(20, ge=1, le=100),
+    min_score: float = Query(6.0),
+) -> dict[str, Any]:
+    from reddit_crawler.analytics import curated_social_posts
+    items = curated_social_posts(DB_PATH, period=period, limit=limit, min_curation_score=min_score)
+    return {
+        "period": period,
+        "count": len(items),
+        "min_score": min_score,
+        "items": items,
+    }
+
+
 @app.get("/api/resources")
 def resources(
     kind: str = Query("all"),
@@ -622,6 +725,56 @@ def get_user_bookmarks() -> dict[str, Any]:
         return {"bookmarks": [r[0] for r in rows]}
     finally:
         conn.close()
+
+
+@app.get("/api/user/bookmarks/details")
+def get_user_bookmark_details() -> dict[str, Any]:
+    """Get detailed post objects for all bookmarked posts."""
+    conn = _connect_readonly()
+    try:
+        if not _table_exists(conn, "user_bookmark"):
+            return {"bookmarks": [], "count": 0, "items": []}
+        rows = conn.execute("SELECT post_id FROM user_bookmark ORDER BY saved_at DESC").fetchall()
+        post_ids = [r[0] for r in rows]
+        if not post_ids:
+            return {"bookmarks": [], "count": 0, "items": []}
+
+        knowledge_map = {item["post_id"]: item for item in _unified_knowledge_items(conn)}
+        items = []
+        for pid in post_ids:
+            if pid in knowledge_map:
+                items.append(knowledge_map[pid])
+            else:
+                row = conn.execute("""
+                    SELECT p.post_id, p.title, p.url, p.domain AS source_domain, p.permalink,
+                           p.created_utc, p.score, p.num_comments,
+                           s.display_name AS subreddit
+                    FROM fact_post p
+                    LEFT JOIN dim_subreddit s ON s.subreddit_id = p.subreddit_id
+                    WHERE p.post_id = ?
+                """, (pid,)).fetchone()
+                if row:
+                    item = dict(row)
+                    domain_id = canonical_domain_id(None, item)
+                    domain_meta = DOMAIN_META.get(domain_id, DOMAIN_META.get("other", {}))
+                    item.update({
+                        "analysis": None,
+                        "analysis_version": None,
+                        "provider": None,
+                        "model": None,
+                        "is_ai": False,
+                        "provider_label": "Chưa có briefing",
+                        "domain_id": domain_id,
+                        "domain_name": domain_meta.get("name", domain_id),
+                        "reddit_url": (
+                            f"https://www.reddit.com{item['permalink']}" if item.get("permalink") else None
+                        ),
+                    })
+                    items.append(item)
+        return {"bookmarks": post_ids, "count": len(items), "items": items}
+    finally:
+        conn.close()
+
 
 
 @app.post("/api/user/bookmarks/{post_id}")
