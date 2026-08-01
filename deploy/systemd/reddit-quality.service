@@ -1,0 +1,15 @@
+[Unit]
+Description=Rebuild the post quality mart from the last 72 hours of collected data
+After=network-online.target reddit-crawl.service reddit-enrich.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 1800 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py transform-quality --hours 72
+TimeoutStartSec=40min
+Nice=10
+
+[Install]
+WantedBy=timers.target

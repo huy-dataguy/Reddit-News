@@ -15,18 +15,23 @@ systemctl --user daemon-reload
 systemctl --user enable --now reddit-crawl.timer \
   reddit-enrich.timer \
   reddit-gemini-backlog.timer \
+  reddit-quality.timer \
   reddit-ai@3h.timer reddit-ai@day.timer reddit-ai@week.timer \
   reddit-ai@month.timer reddit-ai@year.timer \
   reddit-report@3h.timer reddit-report@day.timer reddit-report@week.timer \
   reddit-report@month.timer reddit-report@year.timer reddit-web.service
 ```
 
-`reddit-enrich.timer` vét comment/resource toàn backlog theo batch 20.
-`reddit-gemini-backlog.timer` lấy mọi discussion non-NSFW có comment nhưng chưa
+`reddit-enrich.timer` vét comment/resource toàn backlog theo batch 20.`reddit-gemini-backlog.timer` lấy mọi discussion non-NSFW có comment nhưng chưa
 có Gemini V2 success, xử lý tối đa 5 bài mỗi batch bằng Gemini strict. Lỗi được
 backoff, tối đa 3 lần rồi chuyển `blocked`; tiến độ ở
 `reports/operations/gemini-backlog.latest.{json,md}`. Không có OpenAI/local
 fallback trong queue này.
+
+`reddit-quality.timer` rebuild mart `mart_post_quality` mỗi giờ
+(`cli.py transform-quality --hours 72`); job không gọi provider, dùng chung
+`flock` với `--wait 1800` để không chạy đè lúc enrichment/Gemini đang giữ
+pipeline lock, ranking Hot Now sẽ fallback nếu mart chưa kịp rebuild.
 
 Các instance `reddit-ai@*.timer` chỉ tạo Gemini digest đúng period và report;
 PostAnalysis đã do backlog singleton đảm nhiệm. Tất cả job enrichment/Gemini dùng
