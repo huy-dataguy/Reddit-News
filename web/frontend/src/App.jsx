@@ -901,7 +901,7 @@ function pctDelta(latest, previous) {
   return Math.round(((latest - previous) / previous) * 100)
 }
 
-function TrendsInsights({ items, totalItems, domain, setDomain }) {
+function TrendsInsights({ items, totalItems, markRead }) {
   const sorted = [...items].sort((a, b) => (b.trend_score ?? 0) - (a.trend_score ?? 0))
   const star = sorted[0]
   const momentum = [...items]
@@ -1051,6 +1051,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
   const [period, setPeriod] = useState('day')
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState('all')
+  const [hideRead, setHideRead] = useState(false)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1066,11 +1067,12 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
     return (data?.items || []).filter(item => {
+      if (hideRead && readSet.has(item.post_id)) return false
       const matchesDomain = domain === 'all' || item.domain_id === domain
       const text = `${item.title || ''} ${item.subreddit || ''} ${item.domain_name || ''} ${item.analysis?.topic || ''}`.toLocaleLowerCase('vi')
       return matchesDomain && (!normalized || text.includes(normalized))
     })
-  }, [data, domain, query])
+  }, [data, domain, query, hideRead, readSet])
 
   const maxTrend = useMemo(() => Math.max(...(filtered.map(i => i.trend_score ?? 0)), 1), [filtered])
 
@@ -1098,12 +1100,20 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 
     {/* DASHBOARD: star story + momentum + summary stats */}
     {!loading && !error && data && (
-      <TrendsInsights items={data.items || []} totalItems={totalItems} domain={domain} setDomain={setDomain} />
+      <TrendsInsights items={filtered} totalItems={totalItems} markRead={markRead} />
     )}
 
     {/* SEARCH + DOMAIN FILTER */}
     <div className="trends-filter-row">
       <SearchBox value={query} setValue={setQuery} placeholder="Lọc tiêu đề, subreddit hoặc công nghệ…" />
+      <button
+        className={`toolbar-pill ${hideRead ? 'active' : ''}`}
+        onClick={() => setHideRead(!hideRead)}
+        title={hideRead ? 'Hiện cả bài đã đọc' : 'Ẩn bài đã đọc khỏi dashboard và danh sách'}
+      >
+        {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
+        <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
+      </button>
       <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={totalItems} />
     </div>
 
