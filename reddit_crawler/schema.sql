@@ -20,6 +20,7 @@ INSERT OR IGNORE INTO schema_migration (version, name) VALUES (7, 'longread_maga
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (8, 'knowledge_intelligence');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (9, 'analysis_v2');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (10, 'medallion_control_plane_and_user_layer');
+INSERT OR IGNORE INTO schema_migration (version, name) VALUES (11, 'hourly_social_roundup');
 
 -- ============================================================================
 -- 1. DIMENSION TABLES (KÍCH THƯỚC CHỦ THỂ)
@@ -284,6 +285,27 @@ CREATE TABLE IF NOT EXISTS ai_social_post (
     status              TEXT NOT NULL,
     title               TEXT,
     hook                TEXT,
+    full_post_text      TEXT,
+    payload_json        TEXT,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    generated_at        REAL,
+    error               TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ai_social_roundup (
+    cluster_id          TEXT PRIMARY KEY,
+    hour_start          REAL NOT NULL,
+    source_post_ids     TEXT NOT NULL,          -- JSON array
+    total_score         INTEGER NOT NULL DEFAULT 0,
+    total_comments      INTEGER NOT NULL DEFAULT 0,
+    n_posts             INTEGER NOT NULL DEFAULT 0,
+    topic_vi            TEXT,
+    domain_id           TEXT,
+    provider            TEXT NOT NULL,
+    model               TEXT,
+    status              TEXT NOT NULL,
+    title               TEXT,
     full_post_text      TEXT,
     payload_json        TEXT,
     input_tokens        INTEGER,

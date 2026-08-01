@@ -1989,6 +1989,93 @@ a { color: inherit; text-decoration: none; }
   max-width: 520px;
 }
 
+.roundup-section {
+  margin-bottom: 26px;
+  padding: 20px 22px;
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.07) 0%, transparent 55%),
+              var(--panel);
+}
+.roundup-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.roundup-caption {
+  font-size: 13px;
+  color: var(--muted, #64748b);
+}
+.roundup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 1200px) {
+  .roundup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .roundup-grid { grid-template-columns: minmax(0, 1fr); }
+}
+.roundup-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+.roundup-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.roundup-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.roundup-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted, #64748b);
+}
+.roundup-title {
+  margin: 0;
+  font: 700 15px/1.4 'Manrope', sans-serif;
+  color: var(--text, #0f172a);
+}
+.roundup-text {
+  flex: 1;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.04);
+  font: 500 11.5px/1.55 ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  color: var(--text, #0f172a);
+  white-space: pre-wrap;
+  max-height: 190px;
+  overflow-y: auto;
+}
+[data-theme="dark"] .roundup-text { background: rgba(255,255,255,0.05); }
+.roundup-copy-btn { align-self: flex-start; }
+
+
 .social-studio-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

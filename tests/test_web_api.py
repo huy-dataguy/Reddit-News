@@ -204,6 +204,37 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(item_ids, ["sec", "ai"])
 
 
+    def test_social_roundup_endpoint(self) -> None:
+        import math
+
+        now = time.time()
+        hour_start = math.floor((now - 3 * 3600) / 3600) * 3600
+        store = Storage(str(self.db), None)
+        store.upsert_ai_social_roundup({
+            "cluster_id": "clu-1-00-ai_ml", "hour_start": hour_start,
+            "source_post_ids": '["ai", "rust"]', "total_score": 180,
+            "total_comments": 11, "n_posts": 2, "topic_vi": "AI agent benchmark",
+            "domain_id": "ai_ml", "provider": "local", "model": None,
+            "status": "success", "title": "⚡ Roundup cũ của giờ",
+            "full_post_text": "Bài tổng hợp đã lưu của cửa sổ hiện tại.",
+            "generated_at": now - 60,
+        })
+        store.commit()
+        store.close()
+
+        response = self.client.get("/api/social/roundup?hours=3&top=3")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["cached"])
+        self.assertEqual(body["count"], 1)
+        item = body["items"][0]
+        self.assertEqual(item["cluster_id"], "clu-1-00-ai_ml")
+        self.assertEqual(item["total_score"], 180)
+        self.assertEqual(item["total_comments"], 11)
+        self.assertEqual(item["source_post_ids"], ["ai", "rust"])
+        self.assertIn("full_post_text", item)
+        self.assertEqual(item["hour_start"], hour_start)
+
     def _count(self, table: str) -> int:
         import sqlite3
 

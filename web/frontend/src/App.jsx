@@ -1139,6 +1139,50 @@ function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
   </article>
 }
 
+function RoundupStrip({ roundup }) {
+  const [copiedId, setCopiedId] = useState(null)
+  const items = roundup?.items || []
+  if (!roundup || items.length === 0) return null
+
+  const handleCopy = (item) => {
+    navigator.clipboard.writeText(item.full_post_text || '').then(() => {
+      setCopiedId(item.cluster_id)
+      setTimeout(() => setCopiedId(null), 1800)
+    })
+  }
+
+  return (
+    <section className="roundup-section">
+      <div className="roundup-heading">
+        <span className="eyebrow social-eyebrow"><Zap size={13} /> ROUNDUP THEO GIỜ</span>
+        <span className="roundup-caption">
+          {roundup.cached ? 'Đã tổng hợp' : 'Tổng hợp mới'} · gom {items.reduce((s, i) => s + (i.n_posts || i.source_post_ids?.length || 1), 0)} bài Reddit
+          (3h gần nhất) thành {items.length} bài đặc trưng
+        </span>
+      </div>
+      <div className="roundup-grid">
+        {items.map(item => (
+          <article className="roundup-card" key={item.cluster_id}>
+            <div className="roundup-card-head">
+              <span className="roundup-badge"><Zap size={12} /> {item.n_posts || (item.source_post_ids?.length || 1)} bài gộp</span>
+              <span className="roundup-stats"><ThumbsUp size={12} /> {item.total_score} · <MessageCircle size={12} /> {item.total_comments}</span>
+            </div>
+            <h3 className="roundup-title">{item.title}</h3>
+            <pre className="roundup-text">{item.full_post_text}</pre>
+            <button
+              className="button primary roundup-copy-btn"
+              onClick={() => handleCopy(item)}
+              disabled={!item.full_post_text}
+            >
+              {copiedId === item.cluster_id ? <><Check size={13} /> Đã copy!</> : <><Copy size={13} /> Copy bài Roundup</>}
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
   const [period, setPeriod] = useState('week')
   const [query, setQuery] = useState('')
@@ -1146,6 +1190,7 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [roundup, setRoundup] = useState(null)
 
   const load = () => {
     setLoading(true); setError('')
@@ -1153,6 +1198,10 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
       .catch(err => setError(err.message)).finally(() => setLoading(false))
   }
   useEffect(load, [period])
+  useEffect(() => {
+    getJSON('/api/social/roundup?hours=3&top=3')
+      .then(setRoundup).catch(() => setRoundup({ items: [] }))
+  }, [])
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
@@ -1179,6 +1228,8 @@ function SocialStudioPage({ savedSet, toggleSave, readSet, markRead }) {
         </div>
       </div>
     </section>
+
+    <RoundupStrip roundup={roundup} />
 
     <div className="trends-filter-row">
       <SearchBox value={query} setValue={setQuery} placeholder="Lọc chủ đề drama, công nghệ hoặc subreddit…" />

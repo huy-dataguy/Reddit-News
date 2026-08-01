@@ -12,7 +12,14 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .analytics import DOMAIN_META, PERIOD_SECONDS, classify_domain, post_detail, trending_posts
+from .analytics import (
+    DOMAIN_META,
+    PERIOD_SECONDS,
+    classify_domain,
+    post_detail,
+    roundup_social_posts,
+    trending_posts,
+)
 from .prompts import (
     build_post_analysis_prompt,
     build_social_post_prompt,
@@ -933,6 +940,233 @@ def generate_social_drama_post(db_path: str, post_id: str, provider: str = "auto
     finally:
         store.close()
     return payload
+
+
+def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) -> dict:
+    """Dựng input cho LLM từ một cụm post cùng chủ đề (đã gom ở analytics)."""
+    posts: list[dict] = []
+    for post_id in cluster["source_post_ids"]:
+        detail = post_detail(db_path, post_id, comment_limit=comment_limit) or {}
+        post = detail.get("post") or {}
+        analysis = detail.get("analysis") or {}
+        comments = [
+            {
+                "score": c.get("score") or 0,
+                "author": c.get("author") or "user",
+                "body": (c.get("body") or "")[:400],
+            }
+            for c in (detail.get("comments") or [])
+        ]
+        posts.append({
+            "post_id": post_id,
+            "title": post.get("title") or "",
+            "topic": analysis.get("topic") or cluster["topic_vi"],
+            "score": post.get("score") or 0,
+            "comments_count": post.get("num_comments") or 0,
+            "comments": comments,
+        })
+    return {
+        "kind": "roundup_cluster",
+        "domain_id": cluster["domain_id"],
+        "topic_vi": cluster["topic_vi"],
+        "n_posts": cluster["n_posts"],
+        "total_score": cluster["total_score"],
+        "total_comments": cluster["total_comments"],
+        "window_hours": 3,
+        "posts": posts,
+    }
+
+
+def _truncate_vi(text: str, limit: int = 50) -> str:
+    """Cắt theo ranh giới từ, không cắt giữa chữ."""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(" ,;:-").strip() or text[:limit]
+
+
+def local_social_roundup_post(bundle: dict) -> SocialDramaPost:
+    """Tạo bài social tổng hợp cho cả cụm (local fallback, không gọi LLM)."""
+    topic_vi = bundle.get("topic_vi") or "chủ đề công nghệ"
+    total_score = bundle.get("total_score") or 0
+    total_comments = bundle.get("total_comments") or 0
+    n_posts = bundle.get("n_posts") or 0
+    domain_label = DOMAIN_META.get(bundle.get("domain_id"), DOMAIN_META.get("other", {})).get(
+        "name", "Công nghệ"
+    )
+
+    headline = f"⚡ Tranh luận kỹ thuật: {_truncate_vi(topic_vi)}"
+    window_label = f"{int(bundle.get('window_hours', 3))} giờ"
+    hook = (
+        f"Trong {window_label} qua, {n_posts} bài đăng trên Reddit xoay quanh chủ đề này "
+        f"thu hút tổng cộng {total_score} upvotes và {total_comments} bình luận."
+    )
+
+    top_post = (bundle.get("posts") or [{}])[0]
+    body_text = top_post.get("title") or topic_vi
+    event_details = f"Bài viết tiêu biểu: {body_text[:220]}."
+
+    comments = sorted(top_post.get("comments") or [], key=lambda c: c.get("score") or 0, reverse=True)
+    c_snippets = []
+    for c in comments[:3]:
+        b = c.get("body", "").strip()
+        if len(b) > 15:
+            first_sent = b.split(". ")[0].replace("\n", " ")
+            c_snippets.append(f"• u/{c.get('author') or 'user'} ({c.get('score') or 0} up): \"{first_sent[:120]}\"")
+    community_counter = "\n".join(c_snippets) if c_snippets else (
+        f"Cộng đồng đang tích cực chia sẻ trải nghiệm thực tế về {topic_vi[:60]}."
+    )
+
+    dev_impact = (
+        f"🎯 Bài học: {domain_label} đang chuyển động nhanh — theo dõi nguồn chính thức "
+        "và test kỹ trên workload thật trước khi áp dụng rộng."
+    )
+    open_question = "Anh em gặp tình huống tương tự trong dự án của mình chưa?"
+
+    full_text = f"""{headline}
+
+{hook}
+
+📌 TỔNG QUAN VẤN ĐỀ:
+{event_details}
+
+💬 GÓC NHÌN CỘNG ĐỒNG ({n_posts} bài đăng gộp lại):
+{community_counter}
+
+💡 BÀI HỌC KỸ THUẬT:
+{dev_impact}
+
+👇 {open_question}
+
+#RedditRadar #TechInsights"""
+
+    return SocialDramaPost(
+        title=headline, hook=hook, event_details=event_details,
+        community_counter=community_counter, dev_impact=dev_impact,
+        open_question=open_question, full_post_text=full_text.strip(),
+    )
+
+
+def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPost, int, int]:
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=_get_gemini_api_key())
+    response = client.models.generate_content(
+        model=model,
+        contents=(
+            "ROUNDUP_CLUSTER_DATA (một CỤM gồm nhiều bài Reddit cùng chủ đề trong cửa sổ giờ; "
+            "total_score/total_comments là tổng của cả cụm):\n"
+            + json.dumps(bundle, ensure_ascii=False)
+        ),
+        config=types.GenerateContentConfig(
+            system_instruction=build_social_post_prompt(PROMPT_VERSION),
+            response_mime_type="application/json",
+            response_schema=SocialDramaPost.model_json_schema(),
+            temperature=0.4,
+        ),
+    )
+    raw = (response.text or "").strip()
+    if not raw:
+        raise RuntimeError("Gemini không trả social roundup post")
+    object_start = raw.find("{")
+    if object_start < 0:
+        raise RuntimeError("Gemini không trả JSON object cho social roundup post")
+    value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
+    social_post = SocialDramaPost.model_validate(value)
+    usage = response.usage_metadata
+    return (
+        social_post,
+        getattr(usage, "prompt_token_count", 0) or 0,
+        getattr(usage, "candidates_token_count", 0) or 0,
+    )
+
+
+def generate_social_roundup(
+    db_path: str,
+    *,
+    hours: float = 3,
+    top: int = 3,
+    provider: str = "auto",
+) -> list[dict[str, Any]]:
+    """Tổng hợp rolling window thành các bài social đại diện cho cụm chủ đề.
+
+    Gom cụm qua ``roundup_social_posts``, viết 1 bài/cụm bằng prompt v3
+    (Gemini hoặc local fallback), lưu vào ``ai_social_roundup`` theo cluster_id.
+    """
+    clusters = roundup_social_posts(db_path, hours=hours, top=top)
+    gemini_model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
+    gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
+
+    results: list[dict[str, Any]] = []
+    store = Storage(db_path, None)
+    try:
+        if clusters:
+            store.conn.execute(
+                "DELETE FROM ai_social_roundup WHERE hour_start = ?",
+                (clusters[0]["hour_start"],),
+            )
+        for cluster in clusters:
+            bundle = _social_roundup_bundle(db_path, cluster)
+            bundle["window_hours"] = hours
+            social_post = None
+            selected = "local"
+            model = None
+            input_tokens = output_tokens = 0
+            errors = []
+
+            if (provider == "gemini" or provider == "auto") and gemini_available:
+                try:
+                    social_post, input_tokens, output_tokens = gemini_social_roundup_post(
+                        bundle, gemini_model
+                    )
+                    selected, model = "gemini", gemini_model
+                except Exception as exc:
+                    errors.append(f"gemini={type(exc).__name__}: {str(exc)[:200]}")
+
+            if social_post is None:
+                social_post = local_social_roundup_post(bundle)
+                selected = "local-fallback" if errors else "local"
+
+            payload = social_post.model_dump(mode="json")
+            store.upsert_ai_social_roundup({
+                "cluster_id": cluster["cluster_id"],
+                "hour_start": cluster["hour_start"],
+                "source_post_ids": json.dumps(cluster["source_post_ids"], ensure_ascii=False),
+                "total_score": cluster["total_score"],
+                "total_comments": cluster["total_comments"],
+                "n_posts": cluster["n_posts"],
+                "topic_vi": cluster["topic_vi"],
+                "domain_id": cluster["domain_id"],
+                "provider": selected,
+                "model": model,
+                "status": "success",
+                "title": social_post.title,
+                "full_post_text": social_post.full_post_text,
+                "payload_json": json.dumps(payload, ensure_ascii=False),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "generated_at": time.time(),
+                "error": " | ".join(errors) or None,
+            })
+            results.append({
+                "cluster_id": cluster["cluster_id"],
+                "hour_start": cluster["hour_start"],
+                "title": social_post.title,
+                "full_post_text": social_post.full_post_text,
+                "total_score": cluster["total_score"],
+                "total_comments": cluster["total_comments"],
+                "source_post_ids": cluster["source_post_ids"],
+                "provider": selected,
+                "model": model,
+            })
+        store.commit()
+    finally:
+        store.close()
+    return results
 
 
 

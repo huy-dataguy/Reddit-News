@@ -639,6 +639,15 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--period", default="month", choices=["week", "month", "day"])
     sp.set_defaults(func=cmd_generate_buzz)
 
+    sp = sub.add_parser(
+        "roundup-social",
+        help="tổng hợp rolling window thành các bài social đại diện cho cụm chủ đề",
+    )
+    sp.add_argument("--hours", type=float, default=3)
+    sp.add_argument("--top", type=int, default=3)
+    sp.add_argument("--provider", default="auto", choices=["auto", "gemini", "openai", "local"])
+    sp.set_defaults(func=cmd_roundup_social)
+
     return p
 
 def cmd_generate_social(args):
@@ -669,6 +678,23 @@ def cmd_generate_buzz(args):
         if summary:
             print(f"   {summary[:200]}")
         print()
+    print("="*60 + "\n")
+    return 0
+
+def cmd_roundup_social(args):
+    from reddit_crawler.llm import generate_social_roundup
+    results = generate_social_roundup(
+        args.db, hours=args.hours, top=args.top, provider=args.provider,
+    )
+    print("\n" + "="*60)
+    print(f"📱 ROUNDUP SOCIAL ({args.hours}h, {len(results)} bài):")
+    print("="*60)
+    for res in results:
+        print(f"\n▶ {res['title']}")
+        print(f"   Cụm: {res['cluster_id']} | {res['n_posts'] if 'n_posts' in res else len(res['source_post_ids'])} bài | "
+              f"{res['total_score']} upvotes | {res['total_comments']} bình luận | {res['provider']}")
+        print("-"*60)
+        print(res["full_post_text"])
     print("="*60 + "\n")
     return 0
 

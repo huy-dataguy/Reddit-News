@@ -1,0 +1,15 @@
+[Unit]
+Description=Generate hourly aggregated social roundup posts from enriched Reddit data
+After=network-online.target reddit-enrich.service reddit-gemini-backlog.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py roundup-social --hours 3 --top 3 --provider auto
+TimeoutStartSec=30min
+Nice=10
+
+[Install]
+WantedBy=timers.target

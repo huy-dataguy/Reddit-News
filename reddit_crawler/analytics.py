@@ -289,6 +289,187 @@ def curated_social_posts(
     return curated[:limit]
 
 
+_VI_TOPIC_STOPWORDS = frozenset({
+    "bài", "về", "của", "trong", "một", "cho", "các", "và", "không", "với",
+    "người", "cộng", "đồng", "thảo", "luận", "mới", "từ", "được", "này",
+    "đó", "khi", "ai", "công", "nghệ", "dữ", "liệu", "phần", "mềm", "hệ",
+    "thống", "ứng", "dụng", "bản", "tin", "điểm", "mô", "hình", "hỗ", "trợ",
+    "the", "and", "for", "with", "from", "this", "that", "are", "was", "new",
+    "after", "before", "over", "under", "does", "their", "there", "which",
+})
+
+
+def _topic_tokens(topic: str) -> list[str]:
+    """Tách topic tiếng Việt thành các token đặc trưng (bỏ stopword, giữ dài ≥ 3)."""
+    tokens = re.findall(r"[a-zA-Z0-9]+", (topic or "").lower())
+    return list(dict.fromkeys(
+        t for t in tokens if len(t) >= 3 and t not in _VI_TOPIC_STOPWORDS
+    ))
+
+
+def roundup_social_posts(
+    db_path: str | Path = "reddit.db",
+    *,
+    hours: float = 3,
+    top: int = 3,
+    now: float | None = None,
+) -> list[dict[str, Any]]:
+    """Gom các post đã enrich (V2) trong cửa sổ rolling ``hours`` thành cụm chủ đề.
+
+    Heuristic clustering: cùng ``domain_id`` và chia sẻ ≥ 2 token đặc trưng
+    trong ``topic`` (V2 analysis) thì nhập một cụm. Mỗi cụm cộng dồn
+    score/comments của toàn bộ thành viên — tương tác của các bài trùng chủ đề
+    được gộp lại thay vì xét từng bài.
+    """
+    hours = max(0.5, min(float(hours), 24 * 7))
+    top = max(1, min(int(top), 10))
+    now = now if now is not None else time.time()
+    cutoff = now - hours * 3600
+    hour_start = math.floor((now - hours * 3600) / 3600) * 3600
+
+    conn = _connect_readonly(db_path)
+    try:
+        rows = conn.execute(
+            """
+            WITH ranked_metrics AS (
+                SELECT post_id, observed_at, score, num_comments,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY post_id ORDER BY observed_at DESC
+                       ) AS rn
+                FROM fact_post_metrics
+            )
+            SELECT p.post_id, p.title, p.created_utc, p.permalink,
+                   COALESCE(latest.score, p.score, 0) AS latest_score,
+                   COALESCE(latest.num_comments, p.num_comments, 0) AS latest_comments,
+                   pa2.payload_json AS analysis_v2_json,
+                   pa2.provider AS analysis_v2_provider
+            FROM fact_post p
+            LEFT JOIN ranked_metrics latest
+                   ON latest.post_id = p.post_id AND latest.rn = 1
+            JOIN ai_post_analysis_v2 pa2
+              ON pa2.post_id = p.post_id AND pa2.status = 'success'
+            WHERE p.created_utc >= ? AND COALESCE(p.over_18, 0) = 0
+            """,
+            (cutoff,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    scored: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            payload = json.loads(row["analysis_v2_json"] or "{}") or {}
+        except ValueError:
+            payload = {}
+        topic = payload.get("topic") or row["title"] or ""
+        domain_id = canonical_domain_id(payload.get("domain"), dict(row))
+        tokens = _topic_tokens(topic)
+        if not tokens:
+            tokens = _topic_tokens(row["title"] or "")
+        scored.append({
+            "post_id": row["post_id"],
+            "title": row["title"] or "",
+            "topic": topic,
+            "domain_id": domain_id,
+            "tokens": tokens,
+            "latest_score": int(row["latest_score"] or 0),
+            "latest_comments": int(row["latest_comments"] or 0),
+            "permalink": row["permalink"],
+        })
+
+    if not scored:
+        return []
+
+    # Token xuất hiện ở nhiều post trong cửa sổ chính là "chữ ký" chủ đề:
+    # cùng domain + cùng ≥2 token phổ biến → cùng cụm.
+    freq: dict[str, int] = {}
+    for item in scored:
+        for token in item["tokens"]:
+            freq[token] = freq.get(token, 0) + 1
+    for item in scored:
+        item["signature"] = tuple(
+            token for token, _ in sorted(
+                ((t, freq[t]) for t in item["tokens"]),
+                key=lambda pair: (-pair[1], pair[0]),
+            )[:3]
+        )
+
+    scored.sort(
+        key=lambda item: (
+            item["latest_score"] + 5 * item["latest_comments"], item["post_id"],
+        ),
+        reverse=True,
+    )
+
+    # Token hiếm (xuất hiện ≤ 3 post trong cửa sổ) là "chữ ký" chủ đề: cùng
+    # domain + chung 1 token hiếm là đủ để gộp (vd: "reset" trong các post
+    # về reset quota Codex dù từ vựng xung quanh khác nhau).
+    rare_threshold = 3
+    clusters: list[dict[str, Any]] = []
+    for item in scored:
+        chosen = None
+        for cluster in clusters:
+            if cluster["domain_id"] != item["domain_id"]:
+                continue
+            if len(set(cluster["signature"]) & set(item["signature"])) >= 2:
+                chosen = cluster
+                break
+            rare_shared = {
+                t for t in (cluster["all_tokens"] & set(item["tokens"]))
+                if freq.get(t, 999) <= rare_threshold
+            }
+            if rare_shared:
+                chosen = cluster
+                break
+        if chosen is None:
+            clusters.append({
+                "cluster_id": "",
+                "hour_start": hour_start,
+                "topic_vi": item["topic"],
+                "domain_id": item["domain_id"],
+                "source_post_ids": [],
+                "total_score": 0,
+                "total_comments": 0,
+                "n_posts": 0,
+                "top_post_id": item["post_id"],
+                "signature": set(item["signature"]),
+                "all_tokens": set(item["tokens"]),
+            })
+            chosen = clusters[-1]
+        chosen["source_post_ids"].append(item["post_id"])
+        chosen["total_score"] += item["latest_score"]
+        chosen["total_comments"] += item["latest_comments"]
+        chosen["n_posts"] += 1
+        chosen["signature"] &= set(item["signature"])
+        chosen["all_tokens"] |= set(item["tokens"])
+        member_engagement = chosen["total_score"] + 5 * chosen["total_comments"]
+        item_engagement = item["latest_score"] + 5 * item["latest_comments"]
+        if item_engagement > member_engagement or (
+            item_engagement == member_engagement and item["post_id"] < chosen["top_post_id"]
+        ):
+            chosen["top_post_id"] = item["post_id"]
+            chosen["topic_vi"] = item["topic"]
+
+    results: list[dict[str, Any]] = []
+    clusters.sort(
+        key=lambda c: (c["total_score"] + 5 * c["total_comments"], c["n_posts"]),
+        reverse=True,
+    )
+    for i, cluster in enumerate(clusters[:top]):
+        results.append({
+            "cluster_id": f"clu-{int(hour_start)}-{i:02d}-{cluster['domain_id']}",
+            "hour_start": hour_start,
+            "topic_vi": cluster["topic_vi"],
+            "domain_id": cluster["domain_id"],
+            "source_post_ids": cluster["source_post_ids"],
+            "total_score": cluster["total_score"],
+            "total_comments": cluster["total_comments"],
+            "n_posts": cluster["n_posts"],
+            "top_post_id": cluster["top_post_id"],
+        })
+    return results
+
+
 def post_detail(db_path: str | Path, post_id: str, comment_limit: int = 200) -> dict[str, Any] | None:
     """Nội dung một post, bài báo đã extract và discussion để đọc nội bộ."""
     conn = _connect_readonly(db_path)

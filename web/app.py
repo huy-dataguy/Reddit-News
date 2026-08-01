@@ -702,6 +702,61 @@ def curated_social_endpoint(
     }
 
 
+@app.get("/api/social/roundup")
+def social_roundup_endpoint(
+    hours: float = Query(3, ge=0.5, le=24 * 7),
+    top: int = Query(3, ge=1, le=10),
+    refresh: bool = Query(False),
+) -> dict[str, Any]:
+    import math
+    import json as _json
+
+    now = time.time()
+    hour_start = math.floor((now - hours * 3600) / 3600) * 3600
+
+    conn = _connect_readonly()
+    try:
+        if _table_exists(conn, "ai_social_roundup") and not refresh:
+            rows = conn.execute(
+                """
+                SELECT cluster_id, hour_start, source_post_ids, total_score,
+                       total_comments, n_posts, topic_vi, domain_id, provider,
+                       model, title, full_post_text, generated_at
+                FROM ai_social_roundup
+                WHERE status = 'success' AND hour_start = ?
+                ORDER BY total_score + 5 * total_comments DESC
+                LIMIT ?
+                """,
+                (hour_start, top),
+            ).fetchall()
+            if rows:
+                return {
+                    "period": f"{int(hours)}h",
+                    "count": len(rows),
+                    "hour_start": hour_start,
+                    "cached": True,
+                    "items": [
+                        {
+                            **dict(row),
+                            "source_post_ids": _json.loads(row["source_post_ids"] or "[]"),
+                        }
+                        for row in rows
+                    ],
+                }
+    finally:
+        conn.close()
+
+    from reddit_crawler.llm import generate_social_roundup
+    items = generate_social_roundup(DB_PATH, hours=hours, top=top)
+    return {
+        "period": f"{int(hours)}h",
+        "count": len(items),
+        "hour_start": hour_start,
+        "cached": False,
+        "items": items,
+    }
+
+
 @app.get("/api/resources")
 def resources(
     kind: str = Query("all"),
