@@ -46,6 +46,14 @@ def _connect_readonly() -> sqlite3.Connection:
     return conn
 
 
+def _connect_write() -> sqlite3.Connection:
+    """Connect for user-state writes; đợi lâu nếu collector đang giữ write lock."""
+    path = Path(DB_PATH).resolve()
+    conn = sqlite3.connect(str(path), timeout=60)
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+
 def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
     return conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,),
@@ -784,8 +792,7 @@ def get_user_bookmark_details() -> dict[str, Any]:
 @app.post("/api/user/bookmarks/{post_id}")
 def toggle_user_bookmark(post_id: str) -> dict[str, Any]:
     """Save or toggle bookmark in SQLite database."""
-    path = Path(DB_PATH).resolve()
-    conn = sqlite3.connect(str(path), timeout=10)
+    conn = _connect_write()
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_bookmark (
@@ -826,8 +833,7 @@ def get_user_read_posts() -> dict[str, Any]:
 @app.post("/api/user/read/{post_id}")
 def mark_user_read_post(post_id: str) -> dict[str, Any]:
     """Mark a post as read in SQLite database."""
-    path = Path(DB_PATH).resolve()
-    conn = sqlite3.connect(str(path), timeout=10)
+    conn = _connect_write()
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_read_state (

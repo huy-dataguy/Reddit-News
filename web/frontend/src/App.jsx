@@ -1539,9 +1539,15 @@ function AppShell() {
     getJSON('/api/user/bookmarks').then(res => {
       if (res?.bookmarks) {
         setSavedSet(prev => {
-          const merged = new Set([...prev, ...res.bookmarks])
-          try { localStorage.setItem('rr_bookmarks', JSON.stringify([...merged])) } catch {}
-          return merged
+          const local = new Set([...prev, ...res.bookmarks])
+          try { localStorage.setItem('rr_bookmarks', JSON.stringify([...local])) } catch {}
+          const server = new Set(res.bookmarks)
+          for (const id of prev) {
+            if (!server.has(id)) {
+              fetch(`/api/user/bookmarks/${encodeURIComponent(id)}`, { method: 'POST' }).catch(() => {})
+            }
+          }
+          return local
         })
       }
     }).catch(() => {})
