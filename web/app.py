@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 import sqlite3
 import time
@@ -643,27 +644,31 @@ def social_roundup_endpoint(
     top: int = Query(3, ge=1, le=10),
     refresh: bool = Query(False),
 ) -> dict[str, Any]:
-    import math
-    import json as _json
+    """Đọc roundup đã tạo sẵn — KHÔNG gọi LLM từ web request.
 
-    now = time.time()
-    hour_start = math.floor((now - hours * 3600) / 3600) * 3600
+    Nếu chưa có cụm khớp giờ hiện tại, trả về các cụm mới nhất làm dữ liệu
+    gần nhất (timer roundup chạy mỗi giờ sẽ tạo cụm mới).
+    """
+    import json as _json
 
     conn = _connect_readonly()
     try:
-        if _table_exists(conn, "ai_social_roundup") and not refresh:
-            rows = conn.execute(
-                """
-                SELECT cluster_id, hour_start, source_post_ids, total_score,
-                       total_comments, n_posts, topic_vi, domain_id, provider,
-                       model, title, full_post_text, generated_at
-                FROM ai_social_roundup
-                WHERE status = 'success' AND hour_start = ?
-                ORDER BY total_score + 5 * total_comments DESC
-                LIMIT ?
-                """,
-                (hour_start, top),
-            ).fetchall()
+        if _table_exists(conn, "ai_social_roundup"):
+            if refresh:
+                rows = []
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT cluster_id, hour_start, source_post_ids, total_score,
+                           total_comments, n_posts, topic_vi, domain_id, provider,
+                           model, title, full_post_text, generated_at
+                    FROM ai_social_roundup
+                    WHERE status = 'success'
+                    ORDER BY hour_start DESC, total_score + 5 * total_comments DESC
+                    LIMIT ?
+                    """,
+                    (top,),
+                ).fetchall()
             if rows:
                 all_post_ids = sorted({pid for row in rows for pid in _json.loads(row["source_post_ids"] or "[]")})
                 if all_post_ids:
@@ -679,8 +684,9 @@ def social_roundup_endpoint(
                 return {
                     "period": f"{int(hours)}h",
                     "count": len(rows),
-                    "hour_start": hour_start,
+                    "hour_start": float(rows[0]["hour_start"]),
                     "cached": True,
+                    "stale": rows[0]["hour_start"] != math.floor((time.time() - hours * 3600) / 3600) * 3600,
                     "items": [
                         {
                             **dict(row),
@@ -696,18 +702,7 @@ def social_roundup_endpoint(
     finally:
         conn.close()
 
-    from reddit_crawler.llm import generate_social_roundup
-    items = generate_social_roundup(DB_PATH, hours=hours, top=top)
-    source_items: list[dict[str, Any]] = []
-    for item in items:
-        source_items.append({**item, "source_links": item.get("source_links", [])})
-    return {
-        "period": f"{int(hours)}h",
-        "count": len(source_items),
-        "hour_start": hour_start,
-        "cached": False,
-        "items": source_items,
-    }
+    return {"period": f"{int(hours)}h", "count": 0, "hour_start": 0, "cached": True, "stale": True, "items": []}
 
 
 @app.get("/api/resources")
