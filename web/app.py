@@ -740,7 +740,11 @@ def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]
 def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     items = trending_posts(DB_PATH, period=period, limit=10)
 
-    period_label = "THÁNG 6/2026" if period == "month" else "TUẦN NÀY"
+    now = dt.datetime.now(dt.timezone.utc)
+    period_label = (
+        f"THÁNG {now.month}/2026" if period == "month"
+        else f"TUẦN {now.isocalendar().week}/2026"
+    )
     stories = []
     bulletin_lines = [
         f"★ BẢN TIN CÔNG NGHỆ {period_label} | AI BUZZ {period_label}\n",
@@ -750,8 +754,9 @@ def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     badges = ["🔹", "🔥", "⚡", "🚀", "💡", "🛡️", "🤖"]
     for i, item in enumerate(items[:6]):
         badge = badges[i % len(badges)]
-        title = item.get("analysis", {}).get("topic") or item.get("title") or "Hot Tech Story"
-        summary = item.get("analysis", {}).get("verdict") or item.get("analysis", {}).get("summary") or "Thảo luận nổi bật với lượng tương tác lớn từ cộng đồng."
+        analysis = item.get("analysis") or {}
+        title = analysis.get("topic") or item.get("title") or "Hot Tech Story"
+        summary = analysis.get("verdict") or analysis.get("summary") or "Thảo luận nổi bật với lượng tương tác lớn từ cộng đồng."
         sub = item.get("subreddit") or "tech"
         score = item.get("latest_score") or item.get("score") or 0
 
