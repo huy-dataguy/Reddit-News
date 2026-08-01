@@ -146,6 +146,20 @@ class WebApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(body["highlights"]), 1)
         self.assertGreaterEqual(len(body["signals"]), 1)
 
+    def test_today_exposes_quality_fields_when_mart_is_built(self) -> None:
+        from reddit_crawler.marts import build_post_quality_mart
+        build_post_quality_mart(self.db, hours=72, now=self.now)
+        response = self.client.get("/api/today?period=day&limit=3")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertGreaterEqual(len(body["highlights"]), 1)
+        first = body["highlights"][0]
+        self.assertIn("quality_score", first)
+        self.assertIn("score_ratio", first)
+        self.assertIn("engagement_ratio", first)
+        self.assertIn("upvote_ratio", first)
+        self.assertGreater(first["quality_score"], 0.0)
+
     def test_today_marks_a_digest_from_another_period_as_provisional(self) -> None:
         store = Storage(str(self.db), None)
         store.upsert_ai_digest({

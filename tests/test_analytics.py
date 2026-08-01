@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from reddit_crawler.analytics import classify_domain, post_detail, trending_posts
+from reddit_crawler.marts import build_post_quality_mart
 from reddit_crawler.storage import Storage
 
 
@@ -134,6 +135,78 @@ class AnalyticsTests(unittest.TestCase):
             by_id["local"]["composite_value_score"],
             by_id["raw"]["composite_value_score"],
         )
+
+
+    def test_relative_heat_ranks_small_sub_winner_above_big_sub_average(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        db = root / "rel.db"
+        now = time.time()
+        store = Storage(str(db), None)
+        fixture = [
+            # sub A (lớn): median ~80 upvote
+            ("A", 100, 40), ("A", 95, 30), ("A", 90, 25), ("A", 80, 20),
+            ("A", 70, 15), ("A", 60, 12), ("A", 50, 10),
+            # sub B (nhỏ): median 3 upvote; b1 (8 upvote, 16 comment) nổi trội tương đối
+            ("B", 8, 16), ("B", 5, 2), ("B", 4, 1), ("B", 3, 1),
+            ("B", 2, 1), ("B", 2, 0), ("B", 1, 0),
+        ]
+        for i, (sub, score, comments) in enumerate(fixture):
+            post_id = f"p{i}"
+            store.upsert_post({
+                "id": post_id, "name": f"t3_{post_id}", "subreddit_id": f"t5_{sub}",
+                "subreddit": f"sub{sub}", "author": "alice", "created_utc": now - 60,
+                "title": post_id, "score": score, "num_comments": comments,
+                "over_18": False,
+            })
+            store.snapshot_metrics({"id": post_id, "score": score, "num_comments": comments})
+        store.commit()
+        store.close()
+
+        build_post_quality_mart(db, hours=72, now=now)
+        ranked = trending_posts(db, period="day", now=now)
+        by_id = {item["post_id"]: item for item in ranked}
+
+        # p7 = bài 8 upvote của sub B phải lên đầu; trên cả bài 100 upvote của sub A
+        self.assertEqual(ranked[0]["post_id"], "p7")
+        self.assertGreater(
+            by_id["p7"]["composite_value_score"],
+            by_id["p0"]["composite_value_score"],
+        )
+        self.assertGreater(by_id["p7"]["quality_score"], by_id["p0"]["quality_score"])
+        self.assertGreater(by_id["p7"]["score_ratio"], 2.0)
+        self.assertAlmostEqual(by_id["p7"]["engagement_ratio"], 2.0)
+
+    def test_outlier_score_keeps_high_percentile_in_mart(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        db = root / "outlier.db"
+        now = time.time()
+        store = Storage(str(db), None)
+        for i, (sub, score) in enumerate([("A", 500), ("A", 50), ("B", 150), ("B", 10)]):
+            post_id = f"o{i}"
+            store.upsert_post({
+                "id": post_id, "name": f"t3_{post_id}", "subreddit_id": f"t5_{sub}",
+                "subreddit": f"sub{sub}", "author": "alice", "created_utc": now - 60,
+                "title": post_id, "score": score, "num_comments": 5,
+                "over_18": False,
+            })
+            store.snapshot_metrics({"id": post_id, "score": score, "num_comments": 5})
+        store.commit()
+        store.close()
+
+        build_post_quality_mart(db, hours=72, now=now)
+        store = Storage(str(db), None)
+        store.conn.row_factory = __import__("sqlite3").Row
+        try:
+            rows = {r[0]: r for r in store.conn.execute(
+                "SELECT post_id, score_percentile, quality_score FROM mart_post_quality"
+            )}
+        finally:
+            store.close()
+
+        # o0: 500 upvote trong sub 2 bài -> percentile thô 0.5, bị guard đẩy lên >= 0.9
+        self.assertGreaterEqual(rows["o0"]["score_percentile"], 0.9)
+        # o2: 150 upvote không đủ ngưỡng 200 -> giữ percentile thô 0.5
+        self.assertLess(rows["o2"]["score_percentile"], 0.9)
 
 
 if __name__ == "__main__":

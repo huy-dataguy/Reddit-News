@@ -644,7 +644,26 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--provider", default="auto", choices=["auto", "gemini", "openai", "local"])
     sp.set_defaults(func=cmd_roundup_social)
 
+    sp = sub.add_parser(
+        "transform-quality",
+        help="tính mart đặc trưng chất lượng (độ nóng tương đối theo sub) cho ranking",
+    )
+    sp.add_argument("--hours", type=float, default=72)
+    sp.set_defaults(func=cmd_transform_quality)
+
     return p
+
+def cmd_transform_quality(args):
+    from reddit_crawler.marts import build_post_quality_mart
+    result = build_post_quality_mart(args.db, hours=args.hours)
+    print("="*60)
+    print(f"✅ TRANSFORM QUALITY MART ({result['window_hours']}h):")
+    print("="*60)
+    print(f"   Subreddits: {result['subreddits']}")
+    print(f"   Posts đã tính đặc trưng: {result['posts']}")
+    print("="*60 + "\n")
+    return 0
+
 
 def cmd_generate_buzz(args):
     from reddit_crawler.analytics import trending_posts

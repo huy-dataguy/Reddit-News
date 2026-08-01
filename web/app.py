@@ -459,6 +459,13 @@ def today(
             "trend_score": signal.get("trend_score"),
             "composite_value_score": signal.get("composite_value_score"),
             "score_velocity": signal.get("score_velocity"),
+            "quality_score": signal.get("quality_score"),
+            "score_ratio": signal.get("score_ratio"),
+            "comments_ratio": signal.get("comments_ratio"),
+            "engagement_ratio": signal.get("engagement_ratio"),
+            "upvote_ratio": signal.get("upvote_ratio"),
+            "score_percentile": signal.get("score_percentile"),
+            "comments_percentile": signal.get("comments_percentile"),
         })
         seen.add(signal["post_id"])
     highlights.sort(

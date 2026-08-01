@@ -22,6 +22,7 @@ INSERT OR IGNORE INTO schema_migration (version, name) VALUES (9, 'analysis_v2')
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (10, 'medallion_control_plane_and_user_layer');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (11, 'hourly_social_roundup');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (12, 'drop_ai_social_post');
+INSERT OR IGNORE INTO schema_migration (version, name) VALUES (13, 'post_quality_mart');
 
 -- ============================================================================
 -- 1. DIMENSION TABLES (KÍCH THƯỚC CHỦ THỂ)
@@ -381,3 +382,22 @@ CREATE INDEX IF NOT EXISTS ix_user_read_time      ON user_read_state(read_at DES
 
 -- Migration 12: old 1:1 social drama post replaced by hourly roundup (ai_social_roundup)
 DROP TABLE IF EXISTS ai_social_post;
+
+-- Migration 13: post quality mart — derived features for low-engagement sources
+CREATE TABLE IF NOT EXISTS mart_post_quality (
+    post_id             TEXT PRIMARY KEY REFERENCES fact_post(post_id),
+    computed_at         REAL NOT NULL,
+    window_hours        REAL NOT NULL,
+    subreddit_id        TEXT,
+    sub_median_score    REAL,
+    sub_median_comments REAL,
+    sub_post_count      INTEGER,
+    score_percentile    REAL,
+    comments_percentile REAL,
+    score_ratio         REAL,
+    comments_ratio      REAL,
+    engagement_ratio    REAL,
+    upvote_ratio        REAL,
+    quality_score       REAL
+);
+CREATE INDEX IF NOT EXISTS ix_mart_quality_score ON mart_post_quality(quality_score DESC);

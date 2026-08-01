@@ -126,14 +126,48 @@ def _connect_readonly(db_path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+_MART_FIELDS = (
+    "quality_score", "score_ratio", "comments_ratio", "engagement_ratio",
+    "upvote_ratio", "score_percentile", "comments_percentile",
+    "sub_median_score", "sub_median_comments",
+)
+
+
+def _load_quality_mart(conn: sqlite3.Connection, post_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Đọc mart_post_quality cho các post đã cho; rỗng khi mart chưa tồn tại."""
+    post_ids = [pid for pid in post_ids if pid]
+    if not post_ids:
+        return {}
+    try:
+        tables = {
+            row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "mart_post_quality" not in tables:
+            return {}
+    except Exception:
+        return {}
+    placeholders = ",".join("?" for _ in post_ids)
+    rows = conn.execute(
+        f"SELECT * FROM mart_post_quality WHERE post_id IN ({placeholders})",
+        post_ids,
+    ).fetchall()
+    return {row["post_id"]: dict(row) for row in rows}
+
+
 def trending_posts(
     db_path: str | Path = "reddit.db",
     *,
     period: str = "day",
     limit: int = 30,
     now: float | None = None,
+    use_mart: bool = True,
 ) -> list[dict[str, Any]]:
-    """Trả các post nổi bật trong cửa sổ thời gian, điểm cao trước."""
+    """Trả các post nổi bật trong cửa sổ thời gian, điểm cao trước.
+
+    Khi ``mart_post_quality`` có dữ liệu (``use_mart=True``), ranking dựa trên
+    ``quality_score`` — độ nóng tương đối theo baseline subreddit — thay vì
+    score/comment tuyệt đối; fallback về công thức cũ khi mart rỗng.
+    """
     if period not in PERIOD_SECONDS:
         raise ValueError(f"period phải là một trong: {', '.join(PERIOD_SECONDS)}")
     limit = max(1, min(int(limit), 200))
@@ -191,6 +225,12 @@ def trending_posts(
             """,
             (cutoff,),
         ).fetchall()
+        mart: dict[str, dict[str, Any]] = {}
+        if use_mart:
+            try:
+                mart = _load_quality_mart(conn, [r["post_id"] for r in rows])
+            except Exception:
+                mart = {}
     finally:
         conn.close()
 
@@ -225,11 +265,22 @@ def trending_posts(
         analysis = _preferred_analysis(item)
         
         res_count = item.get("resource_count", 0)
-        composite_value = (
-            trend_score
-            + 1.2 * math.log1p(res_count)
-            + (1.5 if analysis and analysis.get("provider") in LLM_PROVIDERS else 0.0)
-        )
+        quality = mart.get(item["post_id"])
+        if quality and quality.get("quality_score") is not None:
+            for key in _MART_FIELDS:
+                item[key] = quality.get(key)
+            item["computed_at"] = quality.get("computed_at")
+            composite_value = (
+                float(quality["quality_score"] or 0)
+                + 1.2 * math.log1p(res_count)
+                + (1.5 if analysis and analysis.get("provider") in LLM_PROVIDERS else 0.0)
+            )
+        else:
+            composite_value = (
+                trend_score
+                + 1.2 * math.log1p(res_count)
+                + (1.5 if analysis and analysis.get("provider") in LLM_PROVIDERS else 0.0)
+            )
         
         item.update({
             "age_hours": round(age_hours, 2),

@@ -41,6 +41,7 @@ _PRIMARY_KEYS = {
     "user_bookmark": ("post_id",),
     "user_read_state": ("post_id",),
     "ai_social_roundup": ("cluster_id",),
+    "mart_post_quality": ("post_id",),
 }
 
 _EXTRACTED_RESOURCE_COLUMNS = (
@@ -429,6 +430,11 @@ class Storage:
         if not row.get("cluster_id"):
             raise ValueError("ai_social_roundup thiếu cluster_id")
         self._upsert("ai_social_roundup", row)
+
+    def upsert_mart_post_quality(self, row: dict[str, Any]) -> None:
+        if not row.get("post_id"):
+            raise ValueError("mart_post_quality thiếu post_id")
+        self._upsert("mart_post_quality", row)
 
     def upsert_extracted_resource(self, row: dict[str, Any]) -> None:
         missing = [key for key in ("resource_id", "url", "resource_type") if not row.get(key)]
