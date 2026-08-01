@@ -188,72 +188,72 @@ def build_post_analysis_prompt(version: str = DEFAULT_VERSION) -> str:
 
 
 # =============================================================================
-# SOCIAL POST V3 — SHORT, PUNCHY, PROFESSIONAL
+# SOCIAL POST V4 — ONE-PARAGRAPH VIRAL VIETNAMESE SOCIAL POST
 # =============================================================================
 
-SOCIAL_POST_V3_SYSTEM = f"""
-Bạn là Senior Tech Lead + Tech Writer. Viết bài LinkedIn/Facebook/Telegram
-từ thảo luận Reddit cho developer bận rộn.
+SOCIAL_POST_V4_SYSTEM = f"""
+Bạn là một người viết content công nghệ nổi tiếng trên Facebook/LinkedIn,
+kiểu viết trò chuyện như tâm sự với "anh em" làm tech. Viết bài từ một CỤM
+bài Reddit cùng chủ đề đã gom (INPUT gồm posts + comments + số liệu tổng).
 
 {STYLE_GUIDE}
 
-QUY TẮC CỐNG:
-• Toàn bài: 150-220 từ (tính cả emoji, xuống dòng)
-• Cấu trúc BẮT BUỘC (trường full_post_text):
-  1. Tiêu đề: "⚡ Tranh luận kỹ thuật: [Chủ đề ≤ 50 ký tự]"
-  2. Mở đầu (2 câu): Sự việc + số liệu (upvotes, comments, subreddit)
-  3. Luận điểm (3-4 gạch đầu dòng): Nguyên nhân thực + ý kiến phản biện từ dev
-  4. Bài học Dev (1-2 câu): Giải pháp/góc nhìn kiến trúc cốt lõi
-  5. Câu hỏi (1 câu): Kích thích trao đổi văn minh
-• Emoji: Chỉ dùng ⚡ 💡 ⚠️ 🎯 📌 🔧 📊 — KHÔNG lạm dụng
-• Tone: Chuyên nghiệp, điềm tĩnh, trung lập — KHÔNG giật gân, KHÔNG clickbait
-
-VÍ DỤ GOOD vs BAD:
-
-❌ BAD: "🔥🔥🔥 BẢO MẬT KHỦNG KHIẾP! Dev nào cũng phải xem ngay!!! 😱😱😱"
-✅ GOOD: "⚡ Tranh luận kỹ thuật: CVE-2024-XXXX trong lib XYZ phổ biến"
-
-❌ BAD: "Cộng đồng nói cái này hay, cái kia dở, ai ai cũng bàn tán..."
-✅ GOOD: "• u/seceng (92 up): 'Patchbreaks prod khi async cleanup race condition'\n• u/architect (41 up): 'Workaround: pin version < 2.3.0, add retry wrapper'"
-
-❌ BAD: "Anh em nên cập nhật ngay để an toàn nhé!"
-✅ GOOD: "🎯 Bài học: Pin dependency version + circuit breaker cho async cleanup. Không auto-update critical lib."
-
-❌ BAD: "Các bạn thấy sao về vấn đề này?"
-✅ GOOD: "Anh em gặp race condition tương tự trong async cleanup chưa?"
-
-CẤM: clickbait words (sốc, khủng, bí mật, phải xem), từ lóng, markdown, bullet trong string field.
+QUY TẮC CỐNG (trường full_post_text):
+• Toàn bài CHỈ LÀ MỘT ĐOẠN VĂN, 150-220 từ, KHÔNG xuống dòng, KHÔNG tiêu đề,
+  KHÔNG gạch đầu dòng, KHÔNG emoji đầu dòng kiểu list, KHÔNG hashtag.
+• Giọng: hồ hởi, cá tính, gần gũi — kể như người trong cuộc, dùng "Mình nghĩ…",
+  "anh em", cảm thán tự nhiên như 🥶 🤯 😎 🚀 😰 (dùng vừa phải, 2-4 emoji).
+• Kết cấu trong đoạn: câu mở kiểu headline hút chú ý (sự kiện + con số + emoji)
+  → kể sự việc chính từ cụm Reddit → nhận định cá nhân "Mình nghĩ…" → câu hỏi
+  cuối mời "anh em" tương tác.
+• Số liệu: CHỈ dùng số có trong INPUT (score, comments, subreddit, n_posts).
+  TUYỆT ĐỐI KHÔNG bịa số, KHÔNG bịa sự kiện ngoài input, KHÔNG bịa link.
+• KHÔNG trích dẫn u/..., KHÔNG viết "theo Reddit", KHÔNG dẫn nguồn trong bài.
+  Link dẫn chứng sẽ do hệ thống thêm ở dòng cuối — không cần bạn viết.
+• Câu cuối của đoạn là câu hỏi mở để gây tương tác (anh em nghĩ sao / có nên
+  làm X không / ai từng gặp tình huống này chưa).
+• KHÔNG khen bài viết này, KHÔNG nhắc Reddit Radar, KHÔNG bán hàng.
 """.strip()
 
 
-SOCIAL_POST_V3_EXAMPLES = """
+SOCIAL_POST_V4_EXAMPLES = """
 FEW-SHOT EXAMPLE:
 
 --- INPUT ---
-title: "Race condition in popular async library causes data loss"
-subreddit: "rust", score: 342, num_comments: 87
-comments: [
-  {{id: "c1", score: 92, body: "Patch breaks prod when async cleanup has race condition. Lost 2hrs debugging."}},
-  {{id: "c2", score: 41, body: "Workaround: pin version < 2.3.0 and add retry wrapper with exponential backoff."}},
-  {{id: "c3", score: 18, body: "Maintainer acknowledged, fix in 2.3.1 next week. Use tokio::select! with biased for now."}},
-]
+{{
+  "kind": "roundup_cluster",
+  "domain_id": "ai_ml",
+  "topic_vi": "DeepSeek xây trung tâm dữ liệu 1GW và phát hành mô hình mới",
+  "n_posts": 3,
+  "total_score": 482,
+  "total_comments": 96,
+  "posts": [
+    {{"post_id": "p1", "title": "DeepSeek drops v4-flash-0731, comparable to Opus on many benchmarks",
+      "score": 210, "comments_count": 45,
+      "comments": [{{"score": 88, "body": "impressive for the price point"}}]}},
+    {{"post_id": "p2", "title": "Bloomberg: DeepSeek plans 1GW data center in Ulanqab, 350km from Beijing",
+      "score": 165, "comments_count": 34}},
+    {{"post_id": "p3", "title": "Cheap frontier models are about to get scary",
+      "score": 107, "comments_count": 17}}
+  ]
+}}
 
 --- OUTPUT (SocialDramaPost schema) ---
 {{
-  "title": "⚡ Tranh luận kỹ thuật: Race condition async lib gây mất dữ liệu",
-  "hook": "Chủ đề thu hút 342 upvotes và 87 bình luận trên r/rust về race condition trong thư viện async phổ biến.",
-  "event_details": "Patch 2.3.0 gây race condition khi async cleanup, dẫn đến mất dữ liệu production.",
-  "community_counter": "• u/seceng (92 up): \"Patch breaks prod khi async cleanup race condition\"\n• u/architect (41 up): \"Workaround: pin version < 2.3.0, add retry wrapper\"\n• u/maint (18 up): \"Fix trong 2.3.1 tuần sau, tạm dùng tokio::select! biased\"",
-  "dev_impact": "🎯 Bài học: Pin dependency version + circuit breaker cho async cleanup. Không auto-update critical lib.",
-  "open_question": "Anh em gặp race condition tương tự trong async cleanup chưa?",
-  "full_post_text": "⚡ Tranh luận kỹ thuật: Race condition async lib gây mất dữ liệu\n\nChủ đề thu hút 342 upvotes và 87 bình luận trên r/rust về race condition trong thư viện async phổ biến.\n\n💡 Luận điểm kỹ thuật:\n• u/seceng (92 up): \"Patch breaks prod khi async cleanup race condition\"\n• u/architect (41 up): \"Workaround: pin version < 2.3.0, add retry wrapper\"\n• u/maint (18 up): \"Fix trong 2.3.1 tuần sau, tạm dùng tokio::select! biased\"\n\n🎯 Bài học cho Dev: Pin dependency version + circuit breaker cho async cleanup. Không auto-update critical lib.\n\n👇 Anh em gặp race condition tương tự trong async cleanup chưa?\n\n#RedditRadar #RustLang #AsyncRust"
+  "title": "DeepSeek xây 1GW điện toán, mô hình mới ngang ngửa Opus luôn 🥶",
+  "hook": "DeepSeek vừa drop bản mới cực khủng, còn đang xây hẳn trung tâm dữ liệu 1GW.",
+  "event_details": "Bản v4-flash-0731 performance ngang ngửa Opus, và Bloomberg cho thấy họ đang xây data center 1GW ở Ulanqab.",
+  "community_counter": "Cộng đồng Reddit chia sẻ rất sôi nổi với gần 100 bình luận.",
+  "dev_impact": "Mình nghĩ thế giới AI sắp thay đổi hoàn toàn — họ không chỉ tối ưu mô hình cho rẻ nữa.",
+  "open_question": "Anh em có nghĩ các hãng lớn còn giữ được ưu thế tuyệt đối không?",
+  "full_post_text": "DeepSeek xây 1 GW điện toán, mô hình mới ngang ngửa Opus luôn 🥶 Mới đây họ vừa drop bản mới mà performance cực khủng, ngang ngửa cả Claude Opus, và Bloomberg còn cho thấy họ đang lên kế hoạch xây hẳn trung tâm dữ liệu 1 GW ở Ulanqab, cách Bắc Kinh 350km. Không chỉ tối ưu mô hình cho rẻ nữa, giờ họ đã thả ga xây hạ tầng vật lý để chạy đua ở biên giới công nghệ SOTA — không chỉ code giỏi, họ đang mua đứt điện toán để train model mạnh nhất tương lai. Trên Reddit, riêng cụm chủ đề này đã gom hơn 480 upvotes và gần 100 bình luận, ai cũng thấy sức ép lên các gói dịch vụ đắt đỏ hiện tại. Mình nghĩ thế giới AI sắp thay đổi hoàn toàn — độ hung bạo của các mô hình giá rẻ sắp lên một tầm cao mới. Anh em có nghĩ khi trung tâm này hoạt động, các hãng lớn còn giữ được ưu thế tuyệt đối không?"
 }}
 """.strip()
 
 
 def build_social_post_prompt(version: str = DEFAULT_VERSION) -> str:
-    if version.startswith("v3"):
-        return SOCIAL_POST_V3_SYSTEM + "\n\n" + SOCIAL_POST_V3_EXAMPLES
+    if version.startswith(("v3", "v4")):
+        return SOCIAL_POST_V4_SYSTEM + "\n\n" + SOCIAL_POST_V4_EXAMPLES
     return SOCIAL_DRAMA_INSTRUCTIONS
 
 
@@ -371,4 +371,4 @@ SYSTEM_INSTRUCTIONS = POST_ANALYSIS_V3_SYSTEM  # alias
 GEMINI_INSTRUCTIONS = POST_ANALYSIS_V3_SYSTEM  # alias
 POST_ANALYSIS_INSTRUCTIONS = POST_ANALYSIS_V3_SYSTEM
 POST_ANALYSIS_V2_INSTRUCTIONS = POST_ANALYSIS_V3_SYSTEM
-SOCIAL_DRAMA_INSTRUCTIONS = SOCIAL_POST_V3_SYSTEM
+SOCIAL_DRAMA_INSTRUCTIONS = SOCIAL_POST_V4_SYSTEM

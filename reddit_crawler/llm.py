@@ -829,7 +829,7 @@ def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) 
     posts: list[dict] = []
     for post_id in cluster["source_post_ids"]:
         detail = post_detail(db_path, post_id, comment_limit=comment_limit) or {}
-        post = detail.get("post") or {}
+        post = detail.get("post") or detail
         analysis = detail.get("analysis") or {}
         comments = [
             {
@@ -845,6 +845,8 @@ def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) 
             "topic": analysis.get("topic") or cluster["topic_vi"],
             "score": post.get("score") or 0,
             "comments_count": post.get("num_comments") or 0,
+            "subreddit": post.get("subreddit") or "",
+            "reddit_url": post.get("reddit_url") or detail.get("reddit_url") or "",
             "comments": comments,
         })
     return {
@@ -871,62 +873,39 @@ def _truncate_vi(text: str, limit: int = 50) -> str:
 
 
 def local_social_roundup_post(bundle: dict) -> SocialDramaPost:
-    """Tạo bài social tổng hợp cho cả cụm (local fallback, không gọi LLM)."""
+    """Tạo bài social tổng hợp cho cả cụm (local fallback, không gọi LLM).
+
+    Phong cách v4: một đoạn văn trò chuyện, kết bằng câu hỏi tương tác.
+    Link dẫn chứng do ``generate_social_roundup`` thêm ở dòng cuối.
+    """
     topic_vi = bundle.get("topic_vi") or "chủ đề công nghệ"
     total_score = bundle.get("total_score") or 0
     total_comments = bundle.get("total_comments") or 0
     n_posts = bundle.get("n_posts") or 0
-    domain_label = DOMAIN_META.get(bundle.get("domain_id"), DOMAIN_META.get("other", {})).get(
-        "name", "Công nghệ"
-    )
-
-    headline = f"⚡ Tranh luận kỹ thuật: {_truncate_vi(topic_vi)}"
     window_label = f"{int(bundle.get('window_hours', 3))} giờ"
-    hook = (
-        f"Trong {window_label} qua, {n_posts} bài đăng trên Reddit xoay quanh chủ đề này "
-        f"thu hút tổng cộng {total_score} upvotes và {total_comments} bình luận."
-    )
-
     top_post = (bundle.get("posts") or [{}])[0]
-    body_text = top_post.get("title") or topic_vi
-    event_details = f"Bài viết tiêu biểu: {body_text[:220]}."
+    title = top_post.get("title") or topic_vi
+    subreddit = top_post.get("subreddit") or ""
 
-    comments = sorted(top_post.get("comments") or [], key=lambda c: c.get("score") or 0, reverse=True)
-    c_snippets = []
-    for c in comments[:3]:
-        b = c.get("body", "").strip()
-        if len(b) > 15:
-            first_sent = b.split(". ")[0].replace("\n", " ")
-            c_snippets.append(f"• u/{c.get('author') or 'user'} ({c.get('score') or 0} up): \"{first_sent[:120]}\"")
-    community_counter = "\n".join(c_snippets) if c_snippets else (
-        f"Cộng đồng đang tích cực chia sẻ trải nghiệm thực tế về {topic_vi[:60]}."
+    hook = (
+        f"{topic_vi} đang rất nóng 🥶 Trong {window_label} qua, cụm chủ đề này "
+        f"gom {n_posts} bài đăng trên Reddit với tổng cộng {total_score} upvotes "
+        f"và {total_comments} bình luận."
     )
-
+    event_details = f"Bài tiêu biểu nói về: {title[:220]}."
+    community_counter = (
+        f"Trên r/{subreddit}," if subreddit else "Trên Reddit,"
+    ) + " mọi người chia sẻ quan điểm rất sôi nổi — có người ủng hộ, có người dè chừng, nhưng ai cũng thấy chủ đề này đáng để theo dõi."
     dev_impact = (
-        f"🎯 Bài học: {domain_label} đang chuyển động nhanh — theo dõi nguồn chính thức "
-        "và test kỹ trên workload thật trước khi áp dụng rộng."
+        "Mình nghĩ đây là tín hiệu đáng để anh em trong nghề để mắt tới — "
+        "theo dõi nguồn chính thức và test kỹ trên workload thật trước khi áp dụng."
     )
     open_question = "Anh em gặp tình huống tương tự trong dự án của mình chưa?"
 
-    full_text = f"""{headline}
-
-{hook}
-
-📌 TỔNG QUAN VẤN ĐỀ:
-{event_details}
-
-💬 GÓC NHÌN CỘNG ĐỒNG ({n_posts} bài đăng gộp lại):
-{community_counter}
-
-💡 BÀI HỌC KỸ THUẬT:
-{dev_impact}
-
-👇 {open_question}
-
-#RedditRadar #TechInsights"""
+    full_text = f"{hook} {event_details} {community_counter} {dev_impact} {open_question}"
 
     return SocialDramaPost(
-        title=headline, hook=hook, event_details=event_details,
+        title=f"⚡ {_truncate_vi(topic_vi)}", hook=hook, event_details=event_details,
         community_counter=community_counter, dev_impact=dev_impact,
         open_question=open_question, full_post_text=full_text.strip(),
     )
@@ -967,6 +946,18 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
     )
 
 
+def _source_links_footer(bundle: dict) -> str:
+    """Dòng cuối của bài social: link bài gốc Reddit (chèn deterministic, LLM không viết)."""
+    urls = [
+        (p.get("reddit_url") or "").strip()
+        for p in (bundle.get("posts") or [])
+        if (p.get("reddit_url") or "").strip()
+    ]
+    if not urls:
+        return ""
+    return "\n\nNguồn: " + " · ".join(dict.fromkeys(urls))
+
+
 def generate_social_roundup(
     db_path: str,
     *,
@@ -976,8 +967,9 @@ def generate_social_roundup(
 ) -> list[dict[str, Any]]:
     """Tổng hợp rolling window thành các bài social đại diện cho cụm chủ đề.
 
-    Gom cụm qua ``roundup_social_posts``, viết 1 bài/cụm bằng prompt v3
-    (Gemini hoặc local fallback), lưu vào ``ai_social_roundup`` theo cluster_id.
+    Gom cụm qua ``roundup_social_posts``, viết 1 bài/cụm theo prompt v4
+    (Gemini hoặc local fallback), thêm dòng cuối link bài gốc, lưu vào
+    ``ai_social_roundup`` theo cluster_id.
     """
     clusters = roundup_social_posts(db_path, hours=hours, top=top)
     gemini_model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
@@ -1012,6 +1004,12 @@ def generate_social_roundup(
             if social_post is None:
                 social_post = local_social_roundup_post(bundle)
                 selected = "local-fallback" if errors else "local"
+
+            footer = _source_links_footer(bundle)
+            if footer:
+                social_post = social_post.model_copy(
+                    update={"full_post_text": (social_post.full_post_text or "").rstrip() + footer}
+                )
 
             payload = social_post.model_dump(mode="json")
             store.upsert_ai_social_roundup({
