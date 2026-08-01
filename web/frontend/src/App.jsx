@@ -535,6 +535,27 @@ function parseUrlFeedState(limit, searchParams, pathname) {
 // ─────────────────────────────────────────────
 // FEED PAGE (merges Today + Knowledge)
 // ─────────────────────────────────────────────
+function ReadFilterPills({ value, onChange }) {
+  return <>
+    <button
+      className={`toolbar-pill ${value === 'hide' ? 'active' : ''}`}
+      onClick={() => onChange(value === 'hide' ? 'all' : 'hide')}
+      title="Bỏ bài đã đọc khỏi danh sách"
+    >
+      <EyeOff size={13} />
+      <span>{value === 'hide' ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
+    </button>
+    <button
+      className={`toolbar-pill ${value === 'only' ? 'active' : ''}`}
+      onClick={() => onChange(value === 'only' ? 'all' : 'only')}
+      title="Chỉ hiển thị bài bạn đã mở"
+    >
+      <Eye size={13} />
+      <span>{value === 'only' ? 'Chỉ hiện bài đã đọc' : 'Chỉ bài đã đọc'}</span>
+    </button>
+  </>
+}
+
 function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const limit = 12
   const [searchParams, setSearchParams] = useSearchParams()
@@ -545,7 +566,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const [query, setQuery] = useState(() => initial.q)
   const [domain, setDomainState] = useState(() => initial.domain)
   const [offset, setOffsetState] = useState(() => initial.offset)
-  const [hideRead, setHideRead] = useState(false)
+  const [readFilter, setReadFilter] = useState('all')
   const [sortBy, setSortBy] = useState('value')
 
   const updateFeedUrl = (newView, newOffset, newQuery, newDomain) => {
@@ -634,7 +655,8 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const processedHot = useMemo(() => {
     if (!hotData?.highlights) return []
     let list = [...hotData.highlights]
-    if (hideRead) list = list.filter(i => !readSet.has(i.post_id))
+    if (readFilter === 'hide') list = list.filter(i => !readSet.has(i.post_id))
+    if (readFilter === 'only') list = list.filter(i => readSet.has(i.post_id))
     list.sort((a, b) => {
       if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
       if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
@@ -643,12 +665,13 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
       return 0
     })
     return list
-  }, [hotData, hideRead, sortBy, readSet])
+  }, [hotData, readFilter, sortBy, readSet])
 
   const filteredAll = useMemo(() => {
     if (!allData?.items) return []
     let list = [...allData.items]
-    if (hideRead) list = list.filter(i => !readSet.has(i.post_id))
+    if (readFilter === 'hide') list = list.filter(i => !readSet.has(i.post_id))
+    if (readFilter === 'only') list = list.filter(i => readSet.has(i.post_id))
     list.sort((a, b) => {
       if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
       if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
@@ -657,7 +680,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
       return 0
     })
     return list
-  }, [allData, hideRead, sortBy, readSet])
+  }, [allData, readFilter, sortBy, readSet])
 
   const counts = health?.counts || {}
 
@@ -710,13 +733,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     {subView === 'hot' && <>
       <div className="feed-toolbar">
         <div className="feed-toolbar-left">
-          <button
-            className={`toolbar-pill ${hideRead ? 'active' : ''}`}
-            onClick={() => setHideRead(!hideRead)}
-          >
-            {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
-            <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
-          </button>
+          <ReadFilterPills value={readFilter} onChange={setReadFilter} />
           <button className="toolbar-pill" onClick={loadHot} title="Tải lại dữ liệu Hot Now">
             <RefreshCw size={13} />
             <span>Làm mới</span>
@@ -752,9 +769,9 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
         ) : (
           <div className="empty-panel">
             <Flame size={28} />
-            <h3>Không có bài hot hôm nay</h3>
-            <p>Thử tắt ẩn bài đã đọc.</p>
-            <button className="button secondary" onClick={() => setHideRead(false)}>
+            <h3>{readFilter === 'only' ? 'Chưa đọc bài nào' : 'Không có bài hot hôm nay'}</h3>
+            <p>{readFilter === 'only' ? 'Mở vài bài là chúng sẽ xuất hiện ở đây.' : 'Thử đổi bộ lọc bài đã đọc.'}</p>
+            <button className="button secondary" onClick={() => setReadFilter('all')}>
               <FilterX size={14} /> Đặt lại bộ lọc
             </button>
           </div>
@@ -780,13 +797,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
 
       <div className="feed-toolbar">
         <div className="feed-toolbar-left">
-          <button
-            className={`toolbar-pill ${hideRead ? 'active' : ''}`}
-            onClick={() => setHideRead(!hideRead)}
-          >
-            {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
-            <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
-          </button>
+          <ReadFilterPills value={readFilter} onChange={setReadFilter} />
         </div>
         <div className="feed-toolbar-right">
           <span className="result-count">Hiển thị <b>{filteredAll.length}</b> kết quả · Trang {Math.floor(offset / limit) + 1}</span>
@@ -826,7 +837,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
           <Search size={32} />
           <h3>Không tìm thấy kết quả phù hợp</h3>
           <p>Thử từ khóa khác hoặc xóa bộ lọc.</p>
-          <button className="button primary" onClick={() => { handleSearchChange(''); setDomain('all'); setHideRead(false) }}>
+          <button className="button primary" onClick={() => { handleSearchChange(''); setDomain('all'); setReadFilter('all') }}>
             <FilterX size={14} /> Xóa toàn bộ bộ lọc
           </button>
         </div>}
@@ -1051,7 +1062,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
   const [period, setPeriod] = useState('day')
   const [query, setQuery] = useState('')
   const [domain, setDomain] = useState('all')
-  const [hideRead, setHideRead] = useState(false)
+  const [readFilter, setReadFilter] = useState('all')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -1067,12 +1078,13 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase('vi')
     return (data?.items || []).filter(item => {
-      if (hideRead && readSet.has(item.post_id)) return false
+      if (readFilter === 'hide' && readSet.has(item.post_id)) return false
+      if (readFilter === 'only' && !readSet.has(item.post_id)) return false
       const matchesDomain = domain === 'all' || item.domain_id === domain
       const text = `${item.title || ''} ${item.subreddit || ''} ${item.domain_name || ''} ${item.analysis?.topic || ''}`.toLocaleLowerCase('vi')
       return matchesDomain && (!normalized || text.includes(normalized))
     })
-  }, [data, domain, query, hideRead, readSet])
+  }, [data, domain, query, readFilter, readSet])
 
   const maxTrend = useMemo(() => Math.max(...(filtered.map(i => i.trend_score ?? 0)), 1), [filtered])
 
@@ -1106,14 +1118,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
     {/* SEARCH + DOMAIN FILTER */}
     <div className="trends-filter-row">
       <SearchBox value={query} setValue={setQuery} placeholder="Lọc tiêu đề, subreddit hoặc công nghệ…" />
-      <button
-        className={`toolbar-pill ${hideRead ? 'active' : ''}`}
-        onClick={() => setHideRead(!hideRead)}
-        title={hideRead ? 'Hiện cả bài đã đọc' : 'Ẩn bài đã đọc khỏi dashboard và danh sách'}
-      >
-        {hideRead ? <EyeOff size={13} /> : <Eye size={13} />}
-        <span>{hideRead ? 'Đang ẩn bài đã đọc' : 'Ẩn bài đã đọc'}</span>
-      </button>
+      <ReadFilterPills value={readFilter} onChange={setReadFilter} />
       <DomainChips domains={data?.domains || []} selected={domain} setSelected={setDomain} total={totalItems} />
     </div>
 
@@ -1144,7 +1149,7 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
         <Search size={32} />
         <h3>Không tìm thấy tín hiệu phù hợp</h3>
         <p>Thử đổi từ khóa, lĩnh vực hoặc mở rộng khoảng thời gian.</p>
-        <button className="button primary" onClick={() => { setQuery(''); setDomain('all') }}>
+        <button className="button primary" onClick={() => { setQuery(''); setDomain('all'); setReadFilter('all') }}>
           <FilterX size={14} /> Đặt lại bộ lọc Trends
         </button>
       </div>}
