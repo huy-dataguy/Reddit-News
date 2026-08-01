@@ -846,6 +846,8 @@ def _social_roundup_bundle(db_path: str, cluster: dict, comment_limit: int = 6) 
             "score": post.get("score") or 0,
             "comments_count": post.get("num_comments") or 0,
             "subreddit": post.get("subreddit") or "",
+            "url": post.get("url") or "",
+            "article_final_url": post.get("article_final_url") or "",
             "reddit_url": post.get("reddit_url") or detail.get("reddit_url") or "",
             "comments": comments,
         })
@@ -875,7 +877,7 @@ def _truncate_vi(text: str, limit: int = 50) -> str:
 def local_social_roundup_post(bundle: dict) -> SocialDramaPost:
     """Tạo bài social tổng hợp cho cả cụm (local fallback, không gọi LLM).
 
-    Phong cách v4: một đoạn văn trò chuyện, kết bằng câu hỏi tương tác.
+    Phong cách v4: 6-7 dòng, mỗi dòng 1 câu, kết bằng câu hỏi tương tác.
     Link dẫn chứng do ``generate_social_roundup`` thêm ở dòng cuối.
     """
     topic_vi = bundle.get("topic_vi") or "chủ đề công nghệ"
@@ -887,22 +889,22 @@ def local_social_roundup_post(bundle: dict) -> SocialDramaPost:
     title = top_post.get("title") or topic_vi
     subreddit = top_post.get("subreddit") or ""
 
+    headline = f"{_truncate_vi(topic_vi, 70)} 🥶"
     hook = (
-        f"{topic_vi} đang rất nóng 🥶 Trong {window_label} qua, cụm chủ đề này "
-        f"gom {n_posts} bài đăng trên Reddit với tổng cộng {total_score} upvotes "
-        f"và {total_comments} bình luận."
+        f"Trong {window_label} qua, cụm chủ đề này gom {n_posts} bài đăng trên "
+        f"Reddit với tổng cộng {total_score} upvotes và {total_comments} bình luận."
     )
-    event_details = f"Bài tiêu biểu nói về: {title[:220]}."
+    event_details = f"Bài tiêu biểu: {_truncate_vi(title, 130)}."
     community_counter = (
         f"Trên r/{subreddit}," if subreddit else "Trên Reddit,"
-    ) + " mọi người chia sẻ quan điểm rất sôi nổi — có người ủng hộ, có người dè chừng, nhưng ai cũng thấy chủ đề này đáng để theo dõi."
+    ) + " mọi người chia sẻ rất sôi nổi — có người ủng hộ, có người dè chừng."
     dev_impact = (
         "Mình nghĩ đây là tín hiệu đáng để anh em trong nghề để mắt tới — "
         "theo dõi nguồn chính thức và test kỹ trên workload thật trước khi áp dụng."
     )
     open_question = "Anh em gặp tình huống tương tự trong dự án của mình chưa?"
 
-    full_text = f"{hook} {event_details} {community_counter} {dev_impact} {open_question}"
+    full_text = "\n".join([headline, hook, event_details, community_counter, dev_impact, open_question])
 
     return SocialDramaPost(
         title=f"⚡ {_truncate_vi(topic_vi)}", hook=hook, event_details=event_details,
@@ -946,13 +948,32 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
     )
 
 
+def _is_reddit_url(url: str) -> bool:
+    host = (url.split("://", 1)[-1].split("/", 1)[0] if "://" in url else "").lower()
+    return host == "reddit.com" or host.endswith(".reddit.com") or host == "redd.it" or host.endswith(".redd.it")
+
+
+def _web_article_urls(bundle: dict) -> list[str]:
+    """Link bài báo trên web cho từng post (article_final_url → url), bỏ link Reddit."""
+    urls: list[str] = []
+    for post in (bundle.get("posts") or []):
+        for key in ("article_final_url", "url"):
+            value = (post.get(key) or "").strip()
+            if value and not _is_reddit_url(value):
+                urls.append(value)
+                break
+    return list(dict.fromkeys(urls))
+
+
 def _source_links_footer(bundle: dict) -> str:
-    """Dòng cuối của bài social: link bài gốc Reddit (chèn deterministic, LLM không viết)."""
-    urls = [
-        (p.get("reddit_url") or "").strip()
-        for p in (bundle.get("posts") or [])
-        if (p.get("reddit_url") or "").strip()
-    ]
+    """Dòng cuối của bài social: link bài gốc (ưu tiên bài báo web, fallback Reddit)."""
+    urls = _web_article_urls(bundle)
+    if not urls:
+        urls = [
+            (p.get("reddit_url") or "").strip()
+            for p in (bundle.get("posts") or [])
+            if (p.get("reddit_url") or "").strip()
+        ]
     if not urls:
         return ""
     return "\n\nNguồn: " + " · ".join(dict.fromkeys(urls))

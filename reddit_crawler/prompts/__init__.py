@@ -199,20 +199,22 @@ bài Reddit cùng chủ đề đã gom (INPUT gồm posts + comments + số li�
 {STYLE_GUIDE}
 
 QUY TẮC CỐNG (trường full_post_text):
-• Toàn bài CHỈ LÀ MỘT ĐOẠN VĂN, 150-220 từ, KHÔNG xuống dòng, KHÔNG tiêu đề,
-  KHÔNG gạch đầu dòng, KHÔNG emoji đầu dòng kiểu list, KHÔNG hashtag.
-• Giọng: hồ hởi, cá tính, gần gũi — kể như người trong cuộc, dùng "Mình nghĩ…",
-  "anh em", cảm thán tự nhiên như 🥶 🤯 😎 🚀 😰 (dùng vừa phải, 2-4 emoji).
-• Kết cấu trong đoạn: câu mở kiểu headline hút chú ý (sự kiện + con số + emoji)
-  → kể sự việc chính từ cụm Reddit → nhận định cá nhân "Mình nghĩ…" → câu hỏi
-  cuối mời "anh em" tương tác.
+• Toàn bài gồm 6-7 DÒNG, mỗi dòng 1 CÂU (dòng quan trọng được phép 1-3 câu) —
+  mỗi dòng một ý hoàn chỉnh, câu liền mạch, không xuống dòng giữa câu.
+• Kết cấu:
+  1. Dòng 1: headline giật sự chú ý (sự kiện + con số + emoji)
+  2. Các dòng giữa: kể sự việc chính theo thứ tự quan trọng (số liệu thật từ
+     INPUT), rồi 1 dòng kéo về tác động với anh em làm tech
+  3. 1 dòng nhận định cá nhân "Mình nghĩ…"
+  4. Dòng cuối: câu hỏi mở mời "anh em" tương tác
+• Giọng: hồ hởi, cá tính, gần gũi — kể như người trong cuộc, cảm thán tự nhiên
+  như 🥶 🤯 😎 🚀 😰 (dùng vừa phải, 2-4 emoji xen kẽ).
 • Số liệu: CHỈ dùng số có trong INPUT (score, comments, subreddit, n_posts).
   TUYỆT ĐỐI KHÔNG bịa số, KHÔNG bịa sự kiện ngoài input, KHÔNG bịa link.
 • KHÔNG trích dẫn u/..., KHÔNG viết "theo Reddit", KHÔNG dẫn nguồn trong bài.
   Link dẫn chứng sẽ do hệ thống thêm ở dòng cuối — không cần bạn viết.
-• Câu cuối của đoạn là câu hỏi mở để gây tương tác (anh em nghĩ sao / có nên
-  làm X không / ai từng gặp tình huống này chưa).
-• KHÔNG khen bài viết này, KHÔNG nhắc Reddit Radar, KHÔNG bán hàng.
+• KHÔNG tiêu đề rời, KHÔNG gạch đầu dòng, KHÔNG hashtag, KHÔNG khen bài viết
+  này, KHÔNG nhắc Reddit Radar, KHÔNG bán hàng.
 """.strip()
 
 
@@ -246,7 +248,7 @@ FEW-SHOT EXAMPLE:
   "community_counter": "Cộng đồng Reddit chia sẻ rất sôi nổi với gần 100 bình luận.",
   "dev_impact": "Mình nghĩ thế giới AI sắp thay đổi hoàn toàn — họ không chỉ tối ưu mô hình cho rẻ nữa.",
   "open_question": "Anh em có nghĩ các hãng lớn còn giữ được ưu thế tuyệt đối không?",
-  "full_post_text": "DeepSeek xây 1 GW điện toán, mô hình mới ngang ngửa Opus luôn 🥶 Mới đây họ vừa drop bản mới mà performance cực khủng, ngang ngửa cả Claude Opus, và Bloomberg còn cho thấy họ đang lên kế hoạch xây hẳn trung tâm dữ liệu 1 GW ở Ulanqab, cách Bắc Kinh 350km. Không chỉ tối ưu mô hình cho rẻ nữa, giờ họ đã thả ga xây hạ tầng vật lý để chạy đua ở biên giới công nghệ SOTA — không chỉ code giỏi, họ đang mua đứt điện toán để train model mạnh nhất tương lai. Trên Reddit, riêng cụm chủ đề này đã gom hơn 480 upvotes và gần 100 bình luận, ai cũng thấy sức ép lên các gói dịch vụ đắt đỏ hiện tại. Mình nghĩ thế giới AI sắp thay đổi hoàn toàn — độ hung bạo của các mô hình giá rẻ sắp lên một tầm cao mới. Anh em có nghĩ khi trung tâm này hoạt động, các hãng lớn còn giữ được ưu thế tuyệt đối không?"
+  "full_post_text": "DeepSeek xây 1 GW điện toán, mô hình mới ngang ngửa Opus luôn 🥶\nMới đây họ vừa drop bản mới mà performance cực khủng, ngang ngửa cả Claude Opus.\nBloomberg còn cho thấy họ đang xây hẳn trung tâm dữ liệu 1 GW ở Ulanqab, cách Bắc Kinh 350km.\nKhông chỉ tối ưu mô hình cho rẻ nữa, giờ họ đã thả ga mua đứt điện toán để train model mạnh nhất tương lai.\nTrên Reddit, cụm chủ đề này gom hơn 480 upvotes và gần 100 bình luận, ai cũng thấy sức ép lên các gói dịch vụ đắt đỏ hiện tại 😰\nMình nghĩ thế giới AI sắp thay đổi hoàn toàn — độ hung bạo của các mô hình giá rẻ sắp lên một tầm cao mới.\nAnh em có nghĩ khi trung tâm này hoạt động, các hãng lớn còn giữ được ưu thế tuyệt đối không?"
 }}
 """.strip()
 
