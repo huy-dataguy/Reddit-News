@@ -353,6 +353,48 @@ def _parse_digest_json(raw: str) -> DigestContent:
     return DigestContent.model_validate(value)
 
 
+def _trim_vi(text: str, limit: int = 280) -> str:
+    """Cắt gọn văn bản theo ranh giới câu, thêm dấu ba chấm."""
+    text = " ".join(str(text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    last = max(cut.rfind(". "), cut.rfind("! "), cut.rfind("? "), cut.rfind("\n"))
+    if last > limit // 2:
+        cut = cut[:last + 1]
+    else:
+        last = cut.rfind(" ")
+        if last > 0:
+            cut = cut[:last]
+    return cut.rstrip(" ,;:") + "…"
+
+
+def _local_category(title: str) -> str:
+    """Phân loại story từ tiêu đề để badge hiển thị đa dạng hơn."""
+    low = (title or "").lower()
+    if re.search(r"\b(gpt|claude|gemini|llama|mistral|deepseek|qwen|sol|luna)\b", low):
+        return "model"
+    if re.search(r"benchmark|versus|\bvs\b|compare|so sánh", low):
+        return "benchmark"
+    if re.search(r"tutorial|guide|hướng dẫn|how.?to|setup|cài đặt", low):
+        return "hướng dẫn"
+    if re.search(r"review|experience|trải nghiệm|impression", low):
+        return "review"
+    return "thảo luận"
+
+
+def _local_why_it_matters(item: dict) -> str:
+    """Lý do đáng chú ý dựa trên số liệu thật của bài."""
+    velocity = item.get("score_velocity_per_hour") or 0
+    comments = item.get("comments_count") or 0
+    score = item.get("score") or 0
+    if velocity >= 30:
+        return f"Đang bùng nổ với {velocity:.0f} điểm/giờ — tín hiệu tăng trưởng nóng nhất cửa sổ."
+    if comments >= 50:
+        return f"{comments} bình luận — cộng đồng đang tranh luận sôi nổi, nhiều góc nhìn trái chiều."
+    return f"Đạt {score} điểm trong cửa sổ theo dõi — mức tương tác cao so với mặt bằng tín hiệu."
+
+
 def local_digest(bundle: list[dict], period: str) -> DigestContent:
     """Fallback không tốn API: số liệu thật + headline, không giả làm phân tích LLM."""
     total_score = sum(item["score"] for item in bundle)
@@ -382,8 +424,10 @@ def local_digest(bundle: list[dict], period: str) -> DigestContent:
     for item in bundle[:10]:
         text = item.get("article_excerpt") or item.get("reddit_selftext") or item.get("title") or ""
         stories.append(Story(
-            category="technology", headline=item.get("title") or "Không có tiêu đề",
-            summary=text[:600], why_it_matters="Tín hiệu có tương tác cao trong cửa sổ theo dõi.",
+            category=_local_category(item.get("title") or ""),
+            headline=item.get("title") or "Không có tiêu đề",
+            summary=_trim_vi(text),
+            why_it_matters=_local_why_it_matters(item),
             key_facts=[
                 f"Score: {item['score']}", f"Bình luận: {item['comments_count']}",
                 f"Velocity: {item['score_velocity_per_hour']} điểm/giờ",
@@ -392,11 +436,11 @@ def local_digest(bundle: list[dict], period: str) -> DigestContent:
             image_alt=item.get("title"),
         ))
     return DigestContent(
-        title=f"Technology Radar — {period}",
+        title=f"★ ĐIỂM TIN CÔNG NGHỆ — {period.upper()} | AI BUZZ",
         executive_summary=(
             f"Có {len(bundle)} tín hiệu nổi bật từ {len(subreddits)} cộng đồng, "
             f"tổng {total_score:,} điểm và {total_comments:,} bình luận. "
-            "Đây là lớp tổng hợp định lượng trực tiếp từ dữ liệu crawl; các bài có nhãn "
+            "Lớp tổng hợp định lượng trực tiếp từ dữ liệu crawl; các bài có nhãn "
             "AI đã đọc cung cấp thêm phân tích ngữ nghĩa và bằng chứng từ comment."
         ),
         key_numbers=[
@@ -475,71 +519,37 @@ def openai_digest(bundle: list[dict], period: str, model: str) -> tuple[DigestCo
 
 
 def gemini_digest(bundle: list[dict], period: str, agent: str) -> tuple[DigestContent, int, int]:
-    """Chạy managed Antigravity Agent với search/URL tools bị giới hạn."""
+    """Tạo digest qua Gemini generate_content (không dùng Antigravity agent —
+    agent hiện trả permission_denied với tài khoản đang dùng)."""
+    from google import genai
+    from google.genai import types
+
+    model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
 
     def call(client):
-        interaction = client.interactions.create(
-            agent=agent,
-            input=(
+        response = client.models.generate_content(
+            model=model,
+            contents=(
                 f"Tạo technology digest tiếng Việt cho cửa sổ {period}. "
                 "Trả đúng JSON schema đã yêu cầu.\nINPUT_SOURCES:\n"
                 + json.dumps(bundle, ensure_ascii=False)
             ),
-            system_instruction=build_digest_prompt(bundle, PROMPT_VERSION),
-            tools=[{"type": "google_search"}, {"type": "url_context"}],
-            response_format={
-                "type": "text", "mime_type": "application/json",
-                "schema": DigestContent.model_json_schema(),
-            },
-            environment="remote",
-            timeout=300.0,
-        )
-        if interaction.status != "completed":
-            raise RuntimeError(f"Antigravity kết thúc với status={interaction.status}")
-        raw = (getattr(interaction, "output_text", None) or "").strip()
-        if not raw:
-            raise RuntimeError("Antigravity không trả text output")
-        try:
-            digest = _parse_digest_json(raw)
-            normalize_usage = None
-        except (RuntimeError, ValueError):
-            normalizer = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
-            normalized = client.interactions.create(
-                model=normalizer,
-                input=(
-                    "Chuyển ANALYST_OUTPUT bên dưới sang đúng response schema. Không thêm fact mới. "
-                    "source_post_ids chỉ được lấy từ VALID_POST_IDS; confidence phải là số 0..1. "
-                    "Nếu thiếu trường, suy ra ngắn gọn từ chính output hoặc dùng danh sách rỗng.\n"
-                    f"VALID_POST_IDS={json.dumps([x['post_id'] for x in bundle])}\n"
-                    f"ANALYST_OUTPUT:\n{raw}"
-                ),
+            config=types.GenerateContentConfig(
                 system_instruction=build_digest_prompt(bundle, PROMPT_VERSION),
-                response_format={
-                    "type": "text", "mime_type": "application/json",
-                    "schema": DigestContent.model_json_schema(),
-                },
-                timeout=120.0,
-            )
-            normalized_raw = (getattr(normalized, "output_text", None) or "").strip()
-            if not normalized_raw:
-                raise RuntimeError("Gemini normalizer không trả text output")
-            digest = _parse_digest_json(normalized_raw)
-            normalize_usage = normalized.usage
-        usage = interaction.usage
-        normalize_input = (
-            getattr(normalize_usage, "total_input_tokens", None)
-            or getattr(normalize_usage, "prompt_tokens", 0) or 0
-        ) if normalize_usage else 0
-        normalize_output = (
-            getattr(normalize_usage, "total_output_tokens", None)
-            or getattr(normalize_usage, "completion_tokens", 0) or 0
-        ) if normalize_usage else 0
+                response_mime_type="application/json",
+                response_schema=DigestContent.model_json_schema(),
+                temperature=0.3,
+            ),
+        )
+        raw = (response.text or "").strip()
+        if not raw:
+            raise RuntimeError("Gemini không trả text output")
+        digest = _parse_digest_json(raw)
+        usage = response.usage_metadata
         return (
             _sanitize_digest(digest, bundle),
-            (getattr(usage, "total_input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0)
-            + normalize_input,
-            (getattr(usage, "total_output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0)
-            + normalize_output,
+            getattr(usage, "prompt_token_count", 0) or 0,
+            getattr(usage, "candidates_token_count", 0) or 0,
         )
 
     return _run_gemini_with_rotation(call)

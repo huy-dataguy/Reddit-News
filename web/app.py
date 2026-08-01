@@ -226,6 +226,7 @@ def _latest_digest(conn: sqlite3.Connection, period: str) -> dict[str, Any] | No
     if not row:
         return None
     result = dict(row)
+    result["summary"] = result.get("executive_summary")
     result["payload"] = _parse_payload(result.pop("payload_json", None)) or {}
     result["is_ai"] = _is_ai_provider(result.get("provider"))
     result["provider_label"] = _provider_label(result.get("provider"), result.get("model"))
