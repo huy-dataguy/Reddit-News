@@ -42,12 +42,16 @@ def _get_gemini_api_key() -> str:
 
 
 def _get_gemini_api_keys() -> list[str]:
+    """Tất cả Gemini keys theo thứ tự ưu tiên: GEMINI_API_KEY, GEMINI_API_KEY_2, _3, _4…"""
+    names = ["GEMINI_API_KEY"]
+    names += [f"GEMINI_API_KEY_{i}" for i in range(2, 10)]
     keys = [
-        k.strip() for k in [os.environ.get("GEMINI_API_KEY"), os.environ.get("GEMINI_API_KEY_2")]
-        if k and k.strip()
+        os.environ[name].strip()
+        for name in names
+        if os.environ.get(name, "").strip()
     ]
     if not keys:
-        raise RuntimeError("Thiếu GEMINI_API_KEY")
+        raise RuntimeError("Thiếu GEMINI_API_KEY (thêm GEMINI_API_KEY, _2, _3… vào .env)")
     return keys
 
 
@@ -57,6 +61,32 @@ def _is_rate_limited(exc: Exception) -> bool:
     if code == 429:
         return True
     return "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc) or "quota" in str(exc).lower()
+
+
+def _run_gemini_with_rotation(fn):
+    """Gọi ``fn(client)`` với xoay vòng toàn bộ Gemini keys.
+
+    Key nào bị 429 (hết quota) tự chuyển sang key kế tiếp; lỗi khác ném ra
+    ngay. Trả về kết quả của ``fn``.
+    """
+    global _key_rotation_counter
+    from google import genai
+
+    keys = _get_gemini_api_keys()
+    last_error: Exception | None = None
+    for attempt in range(len(keys)):
+        key = keys[(_key_rotation_counter + attempt) % len(keys)]
+        client = genai.Client(api_key=key)
+        try:
+            _key_rotation_counter += 1
+            return fn(client)
+        except Exception as exc:
+            last_error = exc
+            if not _is_rate_limited(exc):
+                raise
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Không gọi được Gemini (không có key hợp lệ)")
 
 
 def _extract_urls(text: str) -> set[str]:
@@ -446,72 +476,73 @@ def openai_digest(bundle: list[dict], period: str, model: str) -> tuple[DigestCo
 
 def gemini_digest(bundle: list[dict], period: str, agent: str) -> tuple[DigestContent, int, int]:
     """Chạy managed Antigravity Agent với search/URL tools bị giới hạn."""
-    from google import genai
 
-    client = genai.Client(api_key=_get_gemini_api_key())
-    interaction = client.interactions.create(
-        agent=agent,
-        input=(
-            f"Tạo technology digest tiếng Việt cho cửa sổ {period}. "
-            "Trả đúng JSON schema đã yêu cầu.\nINPUT_SOURCES:\n"
-            + json.dumps(bundle, ensure_ascii=False)
-        ),
-        system_instruction=build_digest_prompt(bundle, PROMPT_VERSION),
-        tools=[{"type": "google_search"}, {"type": "url_context"}],
-        response_format={
-            "type": "text", "mime_type": "application/json",
-            "schema": DigestContent.model_json_schema(),
-        },
-        environment="remote",
-        timeout=300.0,
-    )
-    if interaction.status != "completed":
-        raise RuntimeError(f"Antigravity kết thúc với status={interaction.status}")
-    raw = (getattr(interaction, "output_text", None) or "").strip()
-    if not raw:
-        raise RuntimeError("Antigravity không trả text output")
-    try:
-        digest = _parse_digest_json(raw)
-        normalize_usage = None
-    except (RuntimeError, ValueError):
-        normalizer = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
-        normalized = client.interactions.create(
-            model=normalizer,
+    def call(client):
+        interaction = client.interactions.create(
+            agent=agent,
             input=(
-                "Chuyển ANALYST_OUTPUT bên dưới sang đúng response schema. Không thêm fact mới. "
-                "source_post_ids chỉ được lấy từ VALID_POST_IDS; confidence phải là số 0..1. "
-                "Nếu thiếu trường, suy ra ngắn gọn từ chính output hoặc dùng danh sách rỗng.\n"
-                f"VALID_POST_IDS={json.dumps([x['post_id'] for x in bundle])}\n"
-                f"ANALYST_OUTPUT:\n{raw}"
+                f"Tạo technology digest tiếng Việt cho cửa sổ {period}. "
+                "Trả đúng JSON schema đã yêu cầu.\nINPUT_SOURCES:\n"
+                + json.dumps(bundle, ensure_ascii=False)
             ),
             system_instruction=build_digest_prompt(bundle, PROMPT_VERSION),
+            tools=[{"type": "google_search"}, {"type": "url_context"}],
             response_format={
                 "type": "text", "mime_type": "application/json",
                 "schema": DigestContent.model_json_schema(),
             },
-            timeout=120.0,
+            environment="remote",
+            timeout=300.0,
         )
-        normalized_raw = (getattr(normalized, "output_text", None) or "").strip()
-        if not normalized_raw:
-            raise RuntimeError("Gemini normalizer không trả text output")
-        digest = _parse_digest_json(normalized_raw)
-        normalize_usage = normalized.usage
-    usage = interaction.usage
-    normalize_input = (
-        getattr(normalize_usage, "total_input_tokens", None)
-        or getattr(normalize_usage, "prompt_tokens", 0) or 0
-    ) if normalize_usage else 0
-    normalize_output = (
-        getattr(normalize_usage, "total_output_tokens", None)
-        or getattr(normalize_usage, "completion_tokens", 0) or 0
-    ) if normalize_usage else 0
-    return (
-        _sanitize_digest(digest, bundle),
-        (getattr(usage, "total_input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0)
-        + normalize_input,
-        (getattr(usage, "total_output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0)
-        + normalize_output,
-    )
+        if interaction.status != "completed":
+            raise RuntimeError(f"Antigravity kết thúc với status={interaction.status}")
+        raw = (getattr(interaction, "output_text", None) or "").strip()
+        if not raw:
+            raise RuntimeError("Antigravity không trả text output")
+        try:
+            digest = _parse_digest_json(raw)
+            normalize_usage = None
+        except (RuntimeError, ValueError):
+            normalizer = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
+            normalized = client.interactions.create(
+                model=normalizer,
+                input=(
+                    "Chuyển ANALYST_OUTPUT bên dưới sang đúng response schema. Không thêm fact mới. "
+                    "source_post_ids chỉ được lấy từ VALID_POST_IDS; confidence phải là số 0..1. "
+                    "Nếu thiếu trường, suy ra ngắn gọn từ chính output hoặc dùng danh sách rỗng.\n"
+                    f"VALID_POST_IDS={json.dumps([x['post_id'] for x in bundle])}\n"
+                    f"ANALYST_OUTPUT:\n{raw}"
+                ),
+                system_instruction=build_digest_prompt(bundle, PROMPT_VERSION),
+                response_format={
+                    "type": "text", "mime_type": "application/json",
+                    "schema": DigestContent.model_json_schema(),
+                },
+                timeout=120.0,
+            )
+            normalized_raw = (getattr(normalized, "output_text", None) or "").strip()
+            if not normalized_raw:
+                raise RuntimeError("Gemini normalizer không trả text output")
+            digest = _parse_digest_json(normalized_raw)
+            normalize_usage = normalized.usage
+        usage = interaction.usage
+        normalize_input = (
+            getattr(normalize_usage, "total_input_tokens", None)
+            or getattr(normalize_usage, "prompt_tokens", 0) or 0
+        ) if normalize_usage else 0
+        normalize_output = (
+            getattr(normalize_usage, "total_output_tokens", None)
+            or getattr(normalize_usage, "completion_tokens", 0) or 0
+        ) if normalize_usage else 0
+        return (
+            _sanitize_digest(digest, bundle),
+            (getattr(usage, "total_input_tokens", None) or getattr(usage, "prompt_tokens", 0) or 0)
+            + normalize_input,
+            (getattr(usage, "total_output_tokens", None) or getattr(usage, "completion_tokens", 0) or 0)
+            + normalize_output,
+        )
+
+    return _run_gemini_with_rotation(call)
 
 
 def _urls_in_post_bundle(bundle: dict) -> set[str]:
@@ -711,31 +742,33 @@ def gemini_post_analysis(bundle: dict, model: str) -> tuple[PostAnalysis, int, i
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_gemini_api_key())
-    response = client.models.generate_content(
-        model=model,
-        contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
-        config=types.GenerateContentConfig(
-            system_instruction=build_post_analysis_prompt(PROMPT_VERSION),
-            response_mime_type="application/json",
-            response_schema=PostAnalysis.model_json_schema(),
-            temperature=0.3,
-        ),
-    )
-    raw = (response.text or "").strip()
-    if not raw:
-        raise RuntimeError("Gemini không trả post analysis")
-    object_start = raw.find("{")
-    if object_start < 0:
-        raise RuntimeError("Gemini không trả JSON object cho post analysis")
-    value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
-    analysis = _sanitize_post_analysis(PostAnalysis.model_validate(value), bundle)
-    usage = response.usage_metadata
-    return (
-        analysis,
-        getattr(usage, "prompt_token_count", 0) or 0,
-        getattr(usage, "candidates_token_count", 0) or 0,
-    )
+    def call(client):
+        response = client.models.generate_content(
+            model=model,
+            contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=build_post_analysis_prompt(PROMPT_VERSION),
+                response_mime_type="application/json",
+                response_schema=PostAnalysis.model_json_schema(),
+                temperature=0.3,
+            ),
+        )
+        raw = (response.text or "").strip()
+        if not raw:
+            raise RuntimeError("Gemini không trả post analysis")
+        object_start = raw.find("{")
+        if object_start < 0:
+            raise RuntimeError("Gemini không trả JSON object cho post analysis")
+        value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
+        analysis = _sanitize_post_analysis(PostAnalysis.model_validate(value), bundle)
+        usage = response.usage_metadata
+        return (
+            analysis,
+            getattr(usage, "prompt_token_count", 0) or 0,
+            getattr(usage, "candidates_token_count", 0) or 0,
+        )
+
+    return _run_gemini_with_rotation(call)
 
 
 def openai_post_analysis(bundle: dict, model: str) -> tuple[PostAnalysis, int, int]:
@@ -964,43 +997,33 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
     )
     system_instruction = build_social_post_prompt("v5")
 
-    last_error: Exception | None = None
-    keys = _get_gemini_api_keys()
-    for attempt in range(len(keys)):
-        key = keys[(attempt + _key_rotation_counter) % len(keys)]
-        client = genai.Client(api_key=key)
-        try:
-            response = client.models.generate_content(
-                model=model,
-                contents=prompt_text,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    response_mime_type="application/json",
-                    response_schema=SocialDramaPost.model_json_schema(),
-                    temperature=0.4,
-                ),
-            )
-            raw = (response.text or "").strip()
-            if not raw:
-                raise RuntimeError("Gemini không trả social roundup post")
-            object_start = raw.find("{")
-            if object_start < 0:
-                raise RuntimeError("Gemini không trả JSON object cho social roundup post")
-            value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
-            social_post = SocialDramaPost.model_validate(value)
-            usage = response.usage_metadata
-            return (
-                social_post,
-                getattr(usage, "prompt_token_count", 0) or 0,
-                getattr(usage, "candidates_token_count", 0) or 0,
-            )
-        except Exception as exc:
-            last_error = exc
-            if not _is_rate_limited(exc):
-                raise
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Không gọi được Gemini (không có key)")
+    def call(client):
+        response = client.models.generate_content(
+            model=model,
+            contents=prompt_text,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                response_mime_type="application/json",
+                response_schema=SocialDramaPost.model_json_schema(),
+                temperature=0.4,
+            ),
+        )
+        raw = (response.text or "").strip()
+        if not raw:
+            raise RuntimeError("Gemini không trả social roundup post")
+        object_start = raw.find("{")
+        if object_start < 0:
+            raise RuntimeError("Gemini không trả JSON object cho social roundup post")
+        value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
+        social_post = SocialDramaPost.model_validate(value)
+        usage = response.usage_metadata
+        return (
+            social_post,
+            getattr(usage, "prompt_token_count", 0) or 0,
+            getattr(usage, "candidates_token_count", 0) or 0,
+        )
+
+    return _run_gemini_with_rotation(call)
 
 
 def _is_reddit_url(url: str) -> bool:
@@ -1484,31 +1507,33 @@ def gemini_post_analysis_v2(bundle: dict, model: str) -> tuple[PostAnalysisV2, i
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=_get_gemini_api_key())
-    response = client.models.generate_content(
-        model=model,
-        contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
-        config=types.GenerateContentConfig(
-            system_instruction=build_post_analysis_prompt(PROMPT_VERSION),
-            response_mime_type="application/json",
-            response_schema=PostAnalysisV2.model_json_schema(),
-            temperature=0.3,
-        ),
-    )
-    raw = (response.text or "").strip()
-    if not raw:
-        raise RuntimeError("Gemini không trả post analysis v2")
-    object_start = raw.find("{")
-    if object_start < 0:
-        raise RuntimeError("Gemini không trả JSON object cho post analysis v2")
-    value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
-    analysis = _ground_post_analysis_v2(PostAnalysisV2.model_validate(value), bundle)
-    usage = response.usage_metadata
-    return (
-        analysis,
-        getattr(usage, "prompt_token_count", 0) or 0,
-        getattr(usage, "candidates_token_count", 0) or 0,
-    )
+    def call(client):
+        response = client.models.generate_content(
+            model=model,
+            contents="DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
+            config=types.GenerateContentConfig(
+                system_instruction=build_post_analysis_prompt(PROMPT_VERSION),
+                response_mime_type="application/json",
+                response_schema=PostAnalysisV2.model_json_schema(),
+                temperature=0.3,
+            ),
+        )
+        raw = (response.text or "").strip()
+        if not raw:
+            raise RuntimeError("Gemini không trả post analysis v2")
+        object_start = raw.find("{")
+        if object_start < 0:
+            raise RuntimeError("Gemini không trả JSON object cho post analysis v2")
+        value, _ = json.JSONDecoder().raw_decode(raw[object_start:])
+        analysis = _ground_post_analysis_v2(PostAnalysisV2.model_validate(value), bundle)
+        usage = response.usage_metadata
+        return (
+            analysis,
+            getattr(usage, "prompt_token_count", 0) or 0,
+            getattr(usage, "candidates_token_count", 0) or 0,
+        )
+
+    return _run_gemini_with_rotation(call)
 
 
 def openai_post_analysis_v2(bundle: dict, model: str) -> tuple[PostAnalysisV2, int, int]:
