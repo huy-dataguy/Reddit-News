@@ -40,7 +40,6 @@ _PRIMARY_KEYS = {
     "fact_extracted_resource": ("resource_id",),
     "user_bookmark": ("post_id",),
     "user_read_state": ("post_id",),
-    "ai_social_post": ("post_id",),
     "ai_social_roundup": ("cluster_id",),
 }
 
@@ -425,13 +424,6 @@ class Storage:
         self._stub_post(post_id)
         persisted = {column: row.get(column) for column in _ANALYSIS_COLUMNS}
         self._upsert("ai_post_analysis_v2", persisted)
-
-    def upsert_ai_social_post(self, row: dict[str, Any]) -> None:
-        post_id = row.get("post_id")
-        if not post_id:
-            return
-        self._stub_post(post_id)
-        self._upsert("ai_social_post", row)
 
     def upsert_ai_social_roundup(self, row: dict[str, Any]) -> None:
         if not row.get("cluster_id"):

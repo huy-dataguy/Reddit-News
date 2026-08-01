@@ -631,10 +631,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("data-run", help="documented stub for bounded pipeline run")
     sp.set_defaults(func=cmd_data_run)
 
-    sp = sub.add_parser("generate-social", help="tạo bài viết Social Drama/Tranh luận kịch tính chuẩn bài Facebook/X")
-    sp.add_argument("post_id", help="post ID cần tạo bài social")
-    sp.set_defaults(func=cmd_generate_social)
-
     sp = sub.add_parser("generate-buzz", help="tạo Bản tin Công nghệ AI Buzz định kỳ (tuần/tháng)")
     sp.add_argument("--period", default="month", choices=["week", "month", "day"])
     sp.set_defaults(func=cmd_generate_buzz)
@@ -649,16 +645,6 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_roundup_social)
 
     return p
-
-def cmd_generate_social(args):
-    from reddit_crawler.llm import generate_social_drama_post
-    res = generate_social_drama_post(args.db, args.post_id)
-    print("\n" + "="*60)
-    print("📱 BÀI VIẾT SOCIAL DRAMA ĐÃ TẠO:")
-    print("="*60)
-    print(res.get("full_post_text"))
-    print("="*60 + "\n")
-    return 0
 
 def cmd_generate_buzz(args):
     from reddit_crawler.analytics import trending_posts

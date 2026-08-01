@@ -1073,27 +1073,6 @@ function TrendsPage({ savedSet, toggleSave, readSet, markRead }) {
 // SOCIAL STUDIO PAGE
 // ─────────────────────────────────────────────
 function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
-  const [socialData, setSocialData] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    setLoading(true)
-    getJSON(`/api/posts/${encodeURIComponent(item.post_id)}/social`)
-      .then(setSocialData)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [item.post_id])
-
-  const handleCopy = (e) => {
-    e.stopPropagation()
-    if (!socialData?.full_post_text) return
-    navigator.clipboard.writeText(socialData.full_post_text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
   const curScore = item.social_curation_score || 0
   const view = analysisView(item)
 
@@ -1104,10 +1083,6 @@ function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
         <span className="domain-label"><DomainIcon domain={item.domain_id} size={13} /> {item.domain_name}</span>
         {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
       </div>
-      <button className="button primary mini-copy-btn" onClick={handleCopy} disabled={!socialData}>
-        {copied ? <Check size={13} /> : <Copy size={13} />}
-        <span>{copied ? 'Đã copy!' : 'Copy bài Social'}</span>
-      </button>
     </div>
 
     <h3>
@@ -1116,9 +1091,9 @@ function CuratedSocialCard({ item, isSaved, toggleSave, isRead, markRead }) {
       </AppLink>
     </h3>
 
-    {loading ? <Loading label="Đang tạo bài viết Social Drama kịch tính…" /> : (
+    {view.summary && (
       <div className="social-preview-box">
-        <pre>{socialData?.full_post_text || view.summary}</pre>
+        <pre>{view.summary}</pre>
       </div>
     )}
 
@@ -1309,46 +1284,6 @@ function EvidenceAnalysis({ item }) {
   </section>
 }
 
-function SocialStoryPanel({ postId }) {
-  const [socialData, setSocialData] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [copied, setCopied] = useState(false)
-
-  useEffect(() => {
-    setLoading(true)
-    getJSON(`/api/posts/${encodeURIComponent(postId)}/social`)
-      .then(setSocialData)
-      .catch(() => {})
-      .finally(() => setLoading(false))
-  }, [postId])
-
-  if (loading) return <div className="social-story-panel loading-skeleton"><Loading label="Đang tạo bài viết Social Drama kịch tính…" /></div>
-  if (!socialData?.full_post_text) return null
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(socialData.full_post_text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
-  return <section className="social-story-panel">
-    <div className="social-story-header">
-      <div className="social-story-title">
-        <span className="eyebrow social-eyebrow"><Share2 size={13} /> SOCIAL VIRAL POST (FACEBOOK / LINKEDIN / X)</span>
-        <h3>{socialData.title || 'Bài viết Social Drama'}</h3>
-      </div>
-      <button className="button primary social-btn" onClick={handleCopy}>
-        {copied ? <Check size={14} /> : <Copy size={14} />}
-        <span>{copied ? 'Đã copy bài Social!' : 'Copy bài viết'}</span>
-      </button>
-    </div>
-    <div className="social-story-content">
-      <pre>{socialData.full_post_text}</pre>
-    </div>
-  </section>
-}
-
 function PostDetail({ postId, markRead, isSaved, toggleSave }) {
   const navigate = useNavigate()
   const [post, setPost] = useState(null)
@@ -1363,22 +1298,6 @@ function PostDetail({ postId, markRead, isSaved, toggleSave }) {
       document.title = `${item.analysis?.topic || item.title} — Reddit Radar`
     }).catch(err => setError(err.message))
   }, [postId])
-
-  const [copiedSocial, setCopiedSocial] = useState(false)
-  const [socialLoading, setSocialLoading] = useState(false)
-
-  const handleCopySocial = () => {
-    setSocialLoading(true)
-    getJSON(`/api/posts/${encodeURIComponent(postId)}/social`).then(res => {
-      if (res?.full_post_text) {
-        navigator.clipboard.writeText(res.full_post_text).then(() => {
-          setCopiedSocial(true)
-          setTimeout(() => setCopiedSocial(false), 2500)
-        })
-      }
-    }).catch(err => alert("Không tạo được bài Social: " + err.message))
-      .finally(() => setSocialLoading(false))
-  }
 
   const handleCopy = () => {
     if (!post) return
@@ -1446,11 +1365,6 @@ function PostDetail({ postId, markRead, isSaved, toggleSave }) {
         {post.reddit_url && <a href={post.reddit_url} target="_blank" rel="noreferrer" className="button primary">Reddit gốc <ExternalLink size={14} /></a>}
         {(post.article_final_url || post.url) && <a href={post.article_final_url || post.url} target="_blank" rel="noreferrer" className="button secondary">Nguồn ngoài <ExternalLink size={14} /></a>}
 
-        <button className="button primary social-copy-btn" onClick={handleCopySocial} disabled={socialLoading} title="Tạo & sao chép bài viết kịch tính chuẩn bài Facebook/X">
-          <Share2 size={14} />
-          <span>{copiedSocial ? 'Đã copy bài Social!' : socialLoading ? 'Đang tạo bài Social...' : '📱 Copy Bài Đăng Social'}</span>
-        </button>
-
         <button
           className={`button secondary ${isSaved ? 'saved' : ''}`}
           onClick={() => toggleSave(postId)}
@@ -1490,7 +1404,6 @@ function PostDetail({ postId, markRead, isSaved, toggleSave }) {
     </nav>
 
     <div id="sec-analysis">
-      <SocialStoryPanel postId={postId} />
       <EvidenceAnalysis item={post} />
     </div>
 

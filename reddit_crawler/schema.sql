@@ -21,6 +21,7 @@ INSERT OR IGNORE INTO schema_migration (version, name) VALUES (8, 'knowledge_int
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (9, 'analysis_v2');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (10, 'medallion_control_plane_and_user_layer');
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (11, 'hourly_social_roundup');
+INSERT OR IGNORE INTO schema_migration (version, name) VALUES (12, 'drop_ai_social_post');
 
 -- ============================================================================
 -- 1. DIMENSION TABLES (KÍCH THƯỚC CHỦ THỂ)
@@ -278,21 +279,6 @@ CREATE TABLE IF NOT EXISTS ai_post_analysis_v2 (
     input_hash          TEXT
 );
 
-CREATE TABLE IF NOT EXISTS ai_social_post (
-    post_id             TEXT PRIMARY KEY REFERENCES fact_post(post_id),
-    provider            TEXT NOT NULL,
-    model               TEXT,
-    status              TEXT NOT NULL,
-    title               TEXT,
-    hook                TEXT,
-    full_post_text      TEXT,
-    payload_json        TEXT,
-    input_tokens        INTEGER,
-    output_tokens       INTEGER,
-    generated_at        REAL,
-    error               TEXT
-);
-
 CREATE TABLE IF NOT EXISTS ai_social_roundup (
     cluster_id          TEXT PRIMARY KEY,
     hour_start          REAL NOT NULL,
@@ -392,3 +378,6 @@ CREATE INDEX IF NOT EXISTS ix_resource_type       ON fact_extracted_resource(res
 CREATE INDEX IF NOT EXISTS ix_resource_domain     ON fact_extracted_resource(domain);
 CREATE INDEX IF NOT EXISTS ix_user_bookmark_saved ON user_bookmark(saved_at DESC);
 CREATE INDEX IF NOT EXISTS ix_user_read_time      ON user_read_state(read_at DESC);
+
+-- Migration 12: old 1:1 social drama post replaced by hourly roundup (ai_social_roundup)
+DROP TABLE IF EXISTS ai_social_post;

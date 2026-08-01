@@ -595,52 +595,6 @@ def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]
     return {"post_id": post_id, "format": format, "markdown": markdown}
 
 
-@app.get("/api/posts/{post_id}/social")
-def social_post_endpoint(post_id: str) -> dict[str, Any]:
-    detail_data = post_detail(DB_PATH, post_id, comment_limit=20)
-    if not detail_data:
-        raise HTTPException(status_code=404, detail="Không tìm thấy post")
-
-    conn = _connect_readonly()
-    try:
-        if _table_exists(conn, "ai_social_post"):
-            row = conn.execute("SELECT * FROM ai_social_post WHERE post_id=?", (post_id,)).fetchone()
-            if row and row["full_post_text"]:
-                return dict(row)
-    finally:
-        conn.close()
-
-    # Generate via LLM / local module fallback
-    from reddit_crawler.llm import generate_social_drama_post
-    try:
-        return generate_social_drama_post(DB_PATH, post_id)
-    except Exception:
-        title = detail_data.get("title") or ""
-        sub = detail_data.get("subreddit") or "tech"
-        score = detail_data.get("score") or 0
-        comments = detail_data.get("num_comments") or 0
-        text = f"""⚡ Tranh luận kỹ thuật: {title[:70]}
-
-Chủ đề thu hút {score} upvotes và {comments} bình luận sôi nổi trên r/{sub}.
-
-📌 TỔNG QUAN VẤN ĐỀ:
-• Chủ đề thu hút nhiều ý kiến thảo luận về tính thực tiễn và tác động tới quy trình phát triển phần mềm.
-• Các kỹ sư chia sẻ trải nghiệm thực tế và đưa ra khuyến nghị kiểm soát rủi ro.
-
-💡 BÀI HỌC KỸ THUẬT:
-Cần đánh giá kỹ tính ổn định, chi phí và luồng thực thi trước khi áp dụng tự động hóa vào sản phẩm.
-
-👇 Anh em có gặp vấn đề tương tự trong công việc hàng ngày không?
-
-#RedditRadar #TechInsights #{sub}"""
-        return {
-            "post_id": post_id,
-            "title": f"Tranh luận kỹ thuật: {title[:70]} ⚡",
-            "full_post_text": text.strip(),
-            "provider": "local",
-        }
-
-
 @app.get("/api/buzz")
 def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
     items = trending_posts(DB_PATH, period=period, limit=10)
