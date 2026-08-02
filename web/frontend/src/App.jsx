@@ -382,7 +382,6 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
         </span>
         {isHotPost && <span className="hot-pill" title="Bài viết nổi bật đang có lượng thảo luận sôi nổi"><Flame size={12} /> HOT VIRAL</span>}
         <QualityPill score={item.quality_score} />
-        {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
       </div>
       <ProviderBadge provider={item.provider} model={item.model} isAI={item.is_ai} compact />
     </div>
@@ -401,6 +400,7 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
       <span><ThumbsUp size={13} /> {item.score || 0}</span>
       <span><MessageCircle size={13} /> {item.num_comments || item.comment_count || 0}</span>
       <span><Clock3 size={13} /> {relativeTime(item.created_utc)} · {shortDateTime(item.created_utc)}</span>
+      {item.subreddit && <span className="sub-tag card-meta-sub">r/{item.subreddit}</span>}
     </div>
     <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
   </article>
