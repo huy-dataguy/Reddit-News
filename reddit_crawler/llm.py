@@ -98,6 +98,78 @@ def _extract_urls(text: str) -> set[str]:
     }
 
 
+# ---------------------------------------------------------------------------
+# OpenRouter provider (fallback sau Gemini, trước OpenAI)
+# ---------------------------------------------------------------------------
+
+def _openrouter_request(
+    model: str,
+    system_instruction: str,
+    user_content: str,
+    schema: dict | None = None,
+) -> tuple[str, int, int]:
+    """Gọi OpenRouter chat/completions. Trả (text, input_tokens, output_tokens).
+
+    Nếu có ``schema`` thì yêu cầu JSON theo schema trong prompt (không dùng
+    response_format để tương thích model free); parse và validate ở caller.
+    """
+    import requests
+
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("Thiếu OPENROUTER_API_KEY")
+    payload: dict = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": user_content},
+        ],
+        "temperature": 0.3,
+        "max_tokens": int(os.environ.get("OPENROUTER_MAX_TOKENS", "16384")),
+    }
+    if schema is not None:
+        payload["response_format"] = {"type": "json_object"}
+    response = requests.post(
+        "https://openrouter.ai/api/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=180,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"OpenRouter {response.status_code}: {response.text[:300]}")
+    data = response.json()
+    content = (data.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+    usage = data.get("usage") or {}
+    return content, int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)
+
+
+def _openrouter_json(
+    model: str,
+    system_instruction: str,
+    user_content: str,
+    schema: dict,
+) -> tuple[dict, int, int]:
+    """Gọi OpenRouter và parse JSON object từ text trả về."""
+    raw, input_tokens, output_tokens = _openrouter_request(
+        model, system_instruction,
+        user_content + f"\n\nTrả về đúng JSON theo schema:\n{json.dumps(schema, ensure_ascii=False)}",
+        schema=schema,
+    )
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("```", 2)[1]
+        text = text[len("json"):].lstrip() if text.startswith("json") else text
+        text = text.split("```", 1)[0].strip()
+    object_start = text.find("{")
+    if object_start < 0:
+        raise RuntimeError("OpenRouter không trả JSON object")
+    value, _ = json.JSONDecoder().raw_decode(text[object_start:])
+    return value, input_tokens, output_tokens
+
+
 class SourceRef(BaseModel):
     post_id: str
     title: str
@@ -557,6 +629,18 @@ def gemini_digest(bundle: list[dict], period: str, agent: str) -> tuple[DigestCo
     return _run_gemini_with_rotation(call)
 
 
+def openrouter_digest(bundle: list[dict], period: str, model: str) -> tuple[DigestContent, int, int]:
+    value, input_tokens, output_tokens = _openrouter_json(
+        model,
+        build_digest_prompt(bundle, PROMPT_VERSION),
+        f"Tạo technology digest tiếng Việt cho cửa sổ {period}.\nINPUT_SOURCES:\n"
+        + json.dumps(bundle, ensure_ascii=False),
+        DigestContent.model_json_schema(),
+    )
+    digest = _parse_digest_json(json.dumps(value, ensure_ascii=False))
+    return _sanitize_digest(digest, bundle), input_tokens, output_tokens
+
+
 def _urls_in_post_bundle(bundle: dict) -> set[str]:
     post = bundle["post"]
     text = " ".join([
@@ -802,6 +886,17 @@ def openai_post_analysis(bundle: dict, model: str) -> tuple[PostAnalysis, int, i
     )
 
 
+def openrouter_post_analysis(bundle: dict, model: str) -> tuple[PostAnalysis, int, int]:
+    value, input_tokens, output_tokens = _openrouter_json(
+        model,
+        build_post_analysis_prompt(PROMPT_VERSION),
+        "DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
+        PostAnalysis.model_json_schema(),
+    )
+    analysis = _sanitize_post_analysis(PostAnalysis.model_validate(value), bundle)
+    return analysis, input_tokens, output_tokens
+
+
 def generate_post_analysis(
     db_path: str, post_id: str, provider: str = "auto", comment_limit: int = 120,
 ) -> dict:
@@ -810,8 +905,10 @@ def generate_post_analysis(
     bundle = build_post_bundle(db_path, post_id, comment_limit)
     gemini_model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
     openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
     candidates = [provider] if provider != "auto" else (
         (["gemini"] if os.environ.get("GEMINI_API_KEY") else [])
+        + (["openrouter"] if os.environ.get("OPENROUTER_API_KEY") else [])
         + (["openai"] if os.environ.get("OPENAI_API_KEY") else []) + ["local"]
     )
     errors: list[str] = []
@@ -828,6 +925,9 @@ def generate_post_analysis(
             if candidate == "gemini":
                 analysis, input_tokens, output_tokens = gemini_post_analysis(bundle, gemini_model)
                 selected, model = "gemini", gemini_model
+            elif candidate == "openrouter":
+                analysis, input_tokens, output_tokens = openrouter_post_analysis(bundle, openrouter_model)
+                selected, model = "openrouter", openrouter_model
             elif candidate == "openai":
                 analysis, input_tokens, output_tokens = openai_post_analysis(bundle, openai_model)
                 selected, model = "openai", openai_model
@@ -1038,6 +1138,19 @@ def gemini_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPos
     return _run_gemini_with_rotation(call)
 
 
+def openrouter_social_roundup_post(bundle: dict, model: str) -> tuple[SocialDramaPost, int, int]:
+    prompt_text = (
+        "ROUNDUP_CLUSTER_DATA (một CỤM gồm nhiều bài Reddit cùng chủ đề trong cửa sổ giờ; "
+        "total_score/total_comments là tổng của cả cụm):\n"
+        + json.dumps(bundle, ensure_ascii=False)
+    )
+    value, input_tokens, output_tokens = _openrouter_json(
+        model, build_social_post_prompt("v5"), prompt_text,
+        SocialDramaPost.model_json_schema(),
+    )
+    return SocialDramaPost.model_validate(value), input_tokens, output_tokens
+
+
 def _is_reddit_url(url: str) -> bool:
     host = (url.split("://", 1)[-1].split("/", 1)[0] if "://" in url else "").lower()
     return host == "reddit.com" or host.endswith(".reddit.com") or host == "redd.it" or host.endswith(".redd.it")
@@ -1085,6 +1198,8 @@ def generate_social_roundup(
     clusters = roundup_social_posts(db_path, hours=hours, top=top)
     gemini_model = os.environ.get("GEMINI_ROUNDUP_MODEL", "gemini-3.5-flash")
     gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+    openrouter_available = bool(os.environ.get("OPENROUTER_API_KEY"))
 
     results: list[dict[str, Any]] = []
     store = Storage(db_path, None)
@@ -1107,6 +1222,15 @@ def generate_social_roundup(
                     selected, model = "gemini", gemini_model
                 except Exception as exc:
                     errors.append(f"gemini={type(exc).__name__}: {str(exc)[:200]}")
+
+            if social_post is None and (provider == "openrouter" or provider == "auto") and openrouter_available:
+                try:
+                    social_post, input_tokens, output_tokens = openrouter_social_roundup_post(
+                        bundle, openrouter_model
+                    )
+                    selected, model = "openrouter", openrouter_model
+                except Exception as exc:
+                    errors.append(f"openrouter={type(exc).__name__}: {str(exc)[:200]}")
 
             if social_post is None:
                 social_post = local_social_roundup_post(bundle)
@@ -1172,15 +1296,20 @@ def generate_digest(
         raise RuntimeError("Không có signal trong cửa sổ để tạo digest")
     openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
     gemini_agent = os.environ.get("GEMINI_AGENT", "antigravity-preview-05-2026")
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
     openai_available = bool(os.environ.get("OPENAI_API_KEY"))
     gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
+    openrouter_available = bool(os.environ.get("OPENROUTER_API_KEY"))
     if provider == "gemini" and not gemini_available:
         raise RuntimeError("Thiếu GEMINI_API_KEY")
     if provider == "openai" and not openai_available:
         raise RuntimeError("Thiếu OPENAI_API_KEY")
+    if provider == "openrouter" and not openrouter_available:
+        raise RuntimeError("Thiếu OPENROUTER_API_KEY")
     candidates = (
         [provider] if provider != "auto" else
         (["gemini"] if gemini_available else [])
+        + (["openrouter"] if openrouter_available else [])
         + (["openai"] if openai_available else [])
         + ["local"]
     )
@@ -1200,6 +1329,9 @@ def generate_digest(
                     if candidate == "gemini":
                         digest, input_tokens, output_tokens = gemini_digest(bundle, period, gemini_agent)
                         selected, model = "gemini", gemini_agent
+                    elif candidate == "openrouter":
+                        digest, input_tokens, output_tokens = openrouter_digest(bundle[:12], period, openrouter_model)
+                        selected, model = "openrouter", openrouter_model
                     else:
                         digest, input_tokens, output_tokens = openai_digest(bundle, period, openai_model)
                         selected, model = "openai", openai_model
@@ -1239,7 +1371,7 @@ def generate_digest(
         "digest_id": digest_id,
         "provider": selected,
         "model": model,
-        "artifact_kind": "llm" if selected in {"gemini", "openai"} else "provisional",
+        "artifact_kind": "llm" if selected in {"gemini", "openai", "openrouter"} else "provisional",
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "payload": payload,
@@ -1329,7 +1461,16 @@ def _post_analysis_v2_quality_issues(
 
     if analysis.action_items and all(_is_generic_action(item) for item in analysis.action_items):
         issues.append("generic_only_actions")
-    if analysis.quality_issues:
+    hard_issue_keywords = (
+        "ungrounded", "invented", "fabricated", "hallucinat", "bịa",
+        "không có trong dữ liệu", "không có nguồn", "thiếu nguồn",
+        "không nguồn", "sai sự thật", "out of thin air",
+    )
+    if any(
+        keyword in str(item).lower()
+        for item in analysis.quality_issues
+        for keyword in hard_issue_keywords
+    ):
         issues.append("provider_supplied_quality_issues")
     return list(dict.fromkeys(issues))
 
@@ -1567,6 +1708,43 @@ def openai_post_analysis_v2(bundle: dict, model: str) -> tuple[PostAnalysisV2, i
     )
 
 
+def openrouter_post_analysis_v2(bundle: dict, model: str) -> tuple[PostAnalysisV2, int, int]:
+    value, input_tokens, output_tokens = _openrouter_json(
+        model,
+        build_post_analysis_prompt(PROMPT_VERSION),
+        "DISCUSSION_DATA:\n" + json.dumps(bundle, ensure_ascii=False),
+        PostAnalysisV2.model_json_schema(),
+    )
+    _normalize_analysis_v2_stances(value)
+    analysis = _ground_post_analysis_v2(PostAnalysisV2.model_validate(value), bundle)
+    return analysis, input_tokens, output_tokens
+
+
+def _normalize_analysis_v2_stances(value: dict) -> None:
+    """Sửa tại chỗ các ``stance`` không hợp lệ của model free (chỉ cho phép
+    support/counter/caveat): map heuristic, còn lại mặc định support."""
+    allowed = {"support", "counter", "caveat"}
+    for key_point in value.get("key_points") or []:
+        if not isinstance(key_point, dict):
+            continue
+        stance = key_point.get("stance")
+        if isinstance(stance, str) and stance in allowed:
+            continue
+        text = str(key_point.get("text") or "").lower()
+        if "caveat" in text or "hạn chế" in text or "rủi ro" in text:
+            key_point["stance"] = "caveat"
+        elif "counter" in text or "phản bác" in text or "trái chiều" in text:
+            key_point["stance"] = "counter"
+        else:
+            key_point["stance"] = "support"
+    filler = {"", "none", "no", "n/a", "na", "không", "không có", "khong", "không có gì",
+              "no issues", "none found", "không có vấn đề", "none.", "-", "[]"}
+    issues = value.get("quality_issues") or []
+    if isinstance(issues, list):
+        kept = [str(item).strip() for item in issues if str(item).strip().lower() not in filler]
+        value["quality_issues"] = kept
+
+
 def generate_post_analysis_v2(
     db_path: str, post_id: str, provider: str = "auto", comment_limit: int = 120,
 ) -> dict:
@@ -1575,8 +1753,10 @@ def generate_post_analysis_v2(
     bundle = build_post_bundle(db_path, post_id, comment_limit)
     gemini_model = os.environ.get("GEMINI_NORMALIZER_MODEL", "gemini-3.5-flash")
     openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
     candidates = [provider] if provider != "auto" else (
         (["gemini"] if os.environ.get("GEMINI_API_KEY") else [])
+        + (["openrouter"] if os.environ.get("OPENROUTER_API_KEY") else [])
         + (["openai"] if os.environ.get("OPENAI_API_KEY") else []) + ["local"]
     )
     errors: list[str] = []
@@ -1593,6 +1773,9 @@ def generate_post_analysis_v2(
             if candidate == "gemini":
                 analysis, input_tokens, output_tokens = gemini_post_analysis_v2(bundle, gemini_model)
                 selected, model = "gemini", gemini_model
+            elif candidate == "openrouter":
+                analysis, input_tokens, output_tokens = openrouter_post_analysis_v2(bundle, openrouter_model)
+                selected, model = "openrouter", openrouter_model
             elif candidate == "openai":
                 analysis, input_tokens, output_tokens = openai_post_analysis_v2(bundle, openai_model)
                 selected, model = "openai", openai_model
@@ -1641,7 +1824,7 @@ def generate_post_analysis_v2(
         "post_id": post_id,
         "provider": selected,
         "model": model,
-        "artifact_kind": "llm" if selected in {"gemini", "openai"} else "provisional",
+        "artifact_kind": "llm" if selected in {"gemini", "openai", "openrouter"} else "provisional",
         "persisted": persisted,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
@@ -1843,6 +2026,18 @@ def openai_buzz_bulletin(bundle: list[dict], model: str) -> tuple[list[BuzzItem]
     )
 
 
+def openrouter_buzz_bulletin(bundle: list[dict], model: str) -> tuple[list[BuzzItem], int, int]:
+    value, input_tokens, output_tokens = _openrouter_json(
+        model,
+        _BUZZ_INSTRUCTIONS,
+        "Tạo bản tin công nghệ AI Buzz từ dữ liệu Reddit giai đoạn.\nINPUT_SOURCES:\n"
+        + json.dumps(bundle, ensure_ascii=False),
+        BuzzItems.model_json_schema(),
+    )
+    parsed = BuzzItems.model_validate(value)
+    return parsed.items, input_tokens, output_tokens
+
+
 def _buzz_clean(headline: str) -> str:
     text = " ".join((headline or "").split())
     if len(text) > _BUZZ_ITEM_MAX:
@@ -1862,15 +2057,20 @@ def generate_buzz_bulletin(
         raise RuntimeError("Không có bài trong giai đoạn để làm bản tin")
     openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
     gemini_model = os.environ.get("GEMINI_BUZZ_MODEL", "gemini-3.5-flash")
+    openrouter_model = os.environ.get("OPENROUTER_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
     openai_available = bool(os.environ.get("OPENAI_API_KEY"))
     gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
+    openrouter_available = bool(os.environ.get("OPENROUTER_API_KEY"))
     if provider == "gemini" and not gemini_available:
         raise RuntimeError("Thiếu GEMINI_API_KEY")
     if provider == "openai" and not openai_available:
         raise RuntimeError("Thiếu OPENAI_API_KEY")
+    if provider == "openrouter" and not openrouter_available:
+        raise RuntimeError("Thiếu OPENROUTER_API_KEY")
     candidates = (
         [provider] if provider != "auto" else
         (["gemini"] if gemini_available else [])
+        + (["openrouter"] if openrouter_available else [])
         + (["openai"] if openai_available else [])
         + ["local"]
     )
@@ -1890,6 +2090,9 @@ def generate_buzz_bulletin(
                     if candidate == "gemini":
                         items, input_tokens, output_tokens = gemini_buzz_bulletin(bundle, gemini_model)
                         selected, model = "gemini", gemini_model
+                    elif candidate == "openrouter":
+                        items, input_tokens, output_tokens = openrouter_buzz_bulletin(bundle, openrouter_model)
+                        selected, model = "openrouter", openrouter_model
                     else:
                         items, input_tokens, output_tokens = openai_buzz_bulletin(bundle, openai_model)
                         selected, model = "openai", openai_model
