@@ -42,7 +42,7 @@ DOMAIN_ALIASES = {
     "policy_business": "business",
 }
 
-LLM_PROVIDERS = {"gemini", "openai"}
+LLM_PROVIDERS = {"gemini", "openai", "openrouter", "opencode"}
 
 
 def classify_domain(item: dict[str, Any]) -> str:

@@ -52,8 +52,8 @@ def _fresh_provider_is_usable(existing: str | None, requested: str) -> bool:
         return existing in {"local", "local-fallback"}
     llm_available = bool(os.environ.get("GEMINI_API_KEY") or os.environ.get("OPENAI_API_KEY"))
     if llm_available:
-        return existing in {"gemini", "openai"}
-    return existing in {"gemini", "openai", "local", "local-fallback"}
+        return existing in {"gemini", "openai", "opencode"}
+    return existing in {"gemini", "openai", "opencode", "local", "local-fallback"}
 
 
 def analyze_top_posts_v2(
