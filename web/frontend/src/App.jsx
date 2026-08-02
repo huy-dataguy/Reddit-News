@@ -43,6 +43,14 @@ function dateTime(timestamp) {
   }).format(timestamp * 1000)
 }
 
+function shortDateTime(timestamp) {
+  if (!timestamp) return ''
+  return new Intl.DateTimeFormat('vi-VN', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    timeZone: 'Asia/Ho_Chi_Minh',
+  }).format(timestamp * 1000)
+}
+
 function cleanMarkdownText(str) {
   if (!str) return ''
   return String(str)
@@ -391,7 +399,7 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
     <div className="card-meta">
       <span><ThumbsUp size={13} /> {item.score || 0}</span>
       <span><MessageCircle size={13} /> {item.num_comments || item.comment_count || 0}</span>
-      <span><Clock3 size={13} /> {relativeTime(item.created_utc)}</span>
+      <span><Clock3 size={13} /> {relativeTime(item.created_utc)} · {shortDateTime(item.created_utc)}</span>
       {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
     </div>
     <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
@@ -1070,7 +1078,7 @@ function TrendRankedItem({ item, rank, maxTrend, isSaved, toggleSave, isRead, ma
     <div className="card-meta">
       <span><ThumbsUp size={13} /> {compactNumber.format(item.latest_score || item.score || 0)}</span>
       <span><MessageCircle size={13} /> {compactNumber.format(item.latest_comments || item.num_comments || 0)}</span>
-      <span><Clock3 size={13} /> {relativeTime(item.created_utc)}</span>
+      <span><Clock3 size={13} /> {relativeTime(item.created_utc)} · {shortDateTime(item.created_utc)}</span>
     </div>
     <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
   </article>
