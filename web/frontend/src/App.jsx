@@ -364,6 +364,7 @@ function CardActionsBar({ item, isSaved, toggleSave, isRead, markRead }) {
 function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, markRead }) {
   const view = analysisView(item)
   const isHotPost = (item.num_comments >= 15 || item.score >= 30 || item.source_stream === 'hot' || item.source_stream === 'both')
+  const cardImg = item.image_url || item.thumbnail_url || ''
 
   return <article className={`analysis-card ${featured ? 'featured' : ''} ${isRead ? 'read-card' : ''}`}>
     <div className="card-topline">
@@ -381,6 +382,8 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
         {view.title}
       </AppLink>
     </h3>
+    {cardImg && <div className="card-media"><img src={cardImg} alt="" loading="lazy" referrerPolicy="no-referrer"
+      onError={e => { e.currentTarget.closest('.card-media')?.remove() }} /></div>}
     {view.summary && <p className="card-summary">{view.summary}</p>}
     {view.keyPoints[0] && <div className="key-preview">
       <Lightbulb size={15} /><span>{view.keyPoints[0].text}</span>
@@ -388,7 +391,7 @@ function AnalysisCard({ item, featured = false, isSaved, toggleSave, isRead, mar
     <div className="card-meta">
       <span><ThumbsUp size={13} /> {item.score || 0}</span>
       <span><MessageCircle size={13} /> {item.num_comments || item.comment_count || 0}</span>
-      <span><Clock3 size={13} /> {relativeTime(item.generated_at || item.created_utc)}</span>
+      <span><Clock3 size={13} /> {relativeTime(item.created_utc)}</span>
       {item.subreddit && <span className="sub-tag">r/{item.subreddit}</span>}
     </div>
     <CardActionsBar item={item} isSaved={isSaved} toggleSave={toggleSave} isRead={isRead} markRead={markRead} />
@@ -1032,6 +1035,7 @@ function TrendRankedItem({ item, rank, maxTrend, isSaved, toggleSave, isRead, ma
   const trendScore = item.trend_score ?? 0
   const trendPct = maxTrend > 0 ? Math.round((trendScore / maxTrend) * 100) : 0
   const view = analysisView(item)
+  const cardImg = item.image_url || item.thumbnail_url || ''
 
   return <article className={`analysis-card trend-card ${isRead ? 'read-card' : ''}`}>
     <div className="card-topline">
@@ -1050,6 +1054,8 @@ function TrendRankedItem({ item, rank, maxTrend, isSaved, toggleSave, isRead, ma
         {view.title}
       </AppLink>
     </h3>
+    {cardImg && <div className="card-media"><img src={cardImg} alt="" loading="lazy" referrerPolicy="no-referrer"
+      onError={e => { e.currentTarget.closest('.card-media')?.remove() }} /></div>}
     {view.summary && <p className="card-summary">{view.summary}</p>}
     <div className="trend-score-bar-row">
       <div className="trend-score-track">
