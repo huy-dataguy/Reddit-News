@@ -1650,7 +1650,7 @@ def generate_post_analysis_v2(
 
 
 # ---------------------------------------------------------------------------
-# AI Buzz Bulletin — tổng kết tuần / tháng kiểu VNPT AI
+# AI Buzz Bulletin — tổng kết tuần / tháng
 # ---------------------------------------------------------------------------
 
 class BuzzItem(BaseModel):
@@ -1664,7 +1664,7 @@ class BuzzItems(BaseModel):
 
 _BUZZ_ITEM_MAX = 160
 
-_BUZZ_INSTRUCTIONS = """Bạn là biên tập viên bản tin công nghệ AI kiểu VNPT AI (tiếng Việt).
+_BUZZ_INSTRUCTIONS = """Bạn là biên tập viên bản tin công nghệ AI (tiếng Việt).
 Đầu vào là các bài Reddit + comment nổi bật trong giai đoạn. Nhiệm vụ:
 1. Đúc kết 6-9 MỤC TIN chuẩn báo chí, MỖI MỤC LÀ MỘT CÂU hoàn chỉnh có
    tên sản phẩm/công ty/model + sự kiện chính (VD: "GPT-Live gây chú ý với
@@ -1915,7 +1915,7 @@ def generate_buzz_bulletin(
     period_word_vi = "tuần" if period == "week" else "tháng"
     full_text = (
         f"★ BẢN TIN CÔNG NGHỆ {vi_label} | AI BUZZ {en_label}.\n"
-        f"Cùng VNPT AI điểm qua một số bản tin công nghệ nổi bật về "
+        f"Cùng Reddit Radar điểm qua một số bản tin công nghệ nổi bật về "
         f"Trí tuệ nhân tạo (AI) trong {period_word_vi} {vi_label.split()[-1]} nhé: \n"
         f"{bullets}\n"
         "Xem nội dung chi tiết trong từng ảnh"
