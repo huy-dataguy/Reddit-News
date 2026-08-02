@@ -1,0 +1,12 @@
+[Unit]
+Description=Generate AI Buzz bulletin for Reddit Radar (%i)
+After=network-online.target reddit-ai@day.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
+EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py generate-buzz --period %i --provider auto
+TimeoutStartSec=30min
+Nice=10

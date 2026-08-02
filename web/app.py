@@ -737,13 +737,35 @@ def export_post(post_id: str, format: str = Query("markdown")) -> dict[str, str]
 
 
 @api.get("/buzz")
-def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
-    items = trending_posts(DB_PATH, period=period, limit=10)
+def ai_buzz_endpoint(period: str = Query("month", pattern="^(week|month)$")) -> dict[str, Any]:
+    """Đọc Bản tin AI Buzz đã sinh sẵn (bởi cli generate-buzz / systemd timer).
 
+    Web KHÔNG gọi LLM; nếu chưa có bulletin cho period, fallback về dựng nhanh
+    từ trending_posts với cờ cached=False.
+    """
+    from reddit_crawler.analytics import latest_ai_buzz_bulletin
+
+    bulletin = latest_ai_buzz_bulletin(DB_PATH, period=period)
+    if bulletin:
+        return {
+            "period": period,
+            "title": bulletin["title"],
+            "full_bulletin_text": bulletin["full_bulletin_text"],
+            "stories": bulletin["payload"].get("stories", []),
+            "provider": bulletin["provider"],
+            "model": bulletin["model"],
+            "source_count": bulletin["source_count"],
+            "generated_at": bulletin["generated_at"],
+            "window_start": bulletin["window_start"],
+            "window_end": bulletin["window_end"],
+            "cached": True,
+        }
+
+    items = trending_posts(DB_PATH, period=period, limit=10)
     now = dt.datetime.now(dt.timezone.utc)
     period_label = (
-        f"THÁNG {now.month}/2026" if period == "month"
-        else f"TUẦN {now.isocalendar().week}/2026"
+        f"THÁNG {now.month}/{now.year}" if period == "month"
+        else f"TUẦN {now.isocalendar().week}/{now.year}"
     )
     stories = []
     bulletin_lines = [
@@ -773,6 +795,7 @@ def ai_buzz_endpoint(period: str = Query("month")) -> dict[str, Any]:
         "title": f"★ BẢN TIN CÔNG NGHỆ {period_label} | AI BUZZ",
         "full_bulletin_text": "\n".join(bulletin_lines),
         "stories": stories,
+        "cached": False,
     }
 
 

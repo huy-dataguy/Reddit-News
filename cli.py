@@ -631,8 +631,10 @@ def build_parser() -> argparse.ArgumentParser:
     sp = sub.add_parser("data-run", help="documented stub for bounded pipeline run")
     sp.set_defaults(func=cmd_data_run)
 
-    sp = sub.add_parser("generate-buzz", help="tạo Bản tin Công nghệ AI Buzz định kỳ (tuần/tháng)")
-    sp.add_argument("--period", default="month", choices=["week", "month", "day"])
+    sp = sub.add_parser("generate-buzz", help="tạo Bản tin Công nghệ AI Buzz định kỳ (tuần/tháng) qua LLM")
+    sp.add_argument("--period", default="month", choices=["week", "month"])
+    sp.add_argument("--provider", default="auto", choices=["auto", "gemini", "openai", "local"])
+    sp.add_argument("--limit", type=int, default=60)
     sp.set_defaults(func=cmd_generate_buzz)
 
     sp = sub.add_parser(
@@ -666,24 +668,17 @@ def cmd_transform_quality(args):
 
 
 def cmd_generate_buzz(args):
-    from reddit_crawler.analytics import trending_posts
-    items = trending_posts(args.db, period=args.period, limit=10)
-
-    period_label = "THÁNG 6/2026" if args.period == "month" else "TUẦN NÀY"
+    from reddit_crawler.llm import generate_buzz_bulletin
+    result = generate_buzz_bulletin(
+        args.db, period=args.period, provider=args.provider, limit=args.limit,
+    )
     print("\n" + "="*60)
-    print(f"★ BẢN TIN CÔNG NGHỆ {period_label} | AI BUZZ {period_label}")
+    print(result["title"])
     print("="*60)
-    badges = ["🔹", "🔥", "⚡", "🚀", "💡", "🛡️", "🤖"]
-    for i, item in enumerate(items[:6]):
-        badge = badges[i % len(badges)]
-        analysis = item.get("analysis") or {}
-        title = analysis.get("topic") or item.get("title") or "Hot Story"
-        summary = analysis.get("verdict") or analysis.get("summary") or item.get("summary") or ""
-        print(f"{badge} {title}")
-        if summary:
-            print(f"   {summary[:200]}")
-        print()
-    print("="*60 + "\n")
+    print(result["full_bulletin_text"])
+    print("="*60)
+    print(f"💾 Lưu: id={result['bulletin_id']} | provider={result['provider']} "
+          f"| {result['source_count']} bài nguồn | in={result['input_tokens']} out={result['output_tokens']}")
     return 0
 
 def cmd_roundup_social(args):

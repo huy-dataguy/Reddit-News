@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate weekly AI Buzz bulletin
+
+[Timer]
+OnBootSec=5min
+OnCalendar=Sun *-*-* 07:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

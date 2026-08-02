@@ -301,6 +301,24 @@ CREATE TABLE IF NOT EXISTS ai_social_roundup (
     error               TEXT
 );
 
+CREATE TABLE IF NOT EXISTS ai_buzz_bulletin (
+    bulletin_id         TEXT PRIMARY KEY,
+    period              TEXT NOT NULL,           -- 'week' | 'month'
+    window_start        REAL NOT NULL,
+    window_end          REAL NOT NULL,
+    provider            TEXT NOT NULL,
+    model               TEXT,
+    status              TEXT NOT NULL,
+    title               TEXT,
+    full_bulletin_text  TEXT,
+    payload_json        TEXT,                    -- {stories:[{badge,headline,snippet,source_post_ids}]}
+    source_count        INTEGER,
+    input_tokens        INTEGER,
+    output_tokens       INTEGER,
+    generated_at        REAL,
+    error               TEXT
+);
+
 -- ============================================================================
 -- 5. GOLD MARTS (DATA MARTS DÙNG PHỤC VỤ WEB & CONSUMERS)
 -- ============================================================================
@@ -405,3 +423,4 @@ CREATE INDEX IF NOT EXISTS ix_mart_quality_score ON mart_post_quality(quality_sc
 -- Migration 14: fact_post.source_stream — provenance của luồng crawl ('new'/'hot'/'both').
 -- DB mới đã có cột qua CREATE TABLE ở trên; DB cũ được ALTER bằng cmd_migrate (guarded).
 INSERT OR IGNORE INTO schema_migration (version, name) VALUES (14, 'add_fact_post_source_stream');
+INSERT OR IGNORE INTO schema_migration (version, name) VALUES (15, 'ai_buzz_bulletin');

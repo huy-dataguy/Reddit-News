@@ -106,17 +106,18 @@ const NAV_ITEMS = [
 
 function AIBuzzModal({ isOpen, onClose }) {
   const [buzzData, setBuzzData] = useState(null)
+  const [period, setPeriod] = useState('month')
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!isOpen) return
     setLoading(true)
-    getJSON('/api/v1/buzz?period=month')
+    getJSON(`/api/v1/buzz?period=${period}`)
       .then(setBuzzData)
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [isOpen])
+  }, [isOpen, period])
 
   useEffect(() => {
     if (!isOpen) return
@@ -147,8 +148,19 @@ function AIBuzzModal({ isOpen, onClose }) {
         <button className="icon-button" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
       </div>
 
-      {loading ? <Loading label="Đang tổng hợp bản tin công nghệ…" /> : (
-        <div className="modal-body">
+      <div className="modal-body">
+        <div className="period-switch buzz-period-switch">
+          {['week', 'month'].map(value => (
+            <button key={value} className={period === value ? 'active' : ''}
+              onClick={() => setPeriod(value)}>
+              {value === 'week' ? 'Bản tin tuần' : 'Bản tin tháng'}
+            </button>
+          ))}
+        </div>
+        {buzzData?.cached === false && (
+          <p className="buzz-fallback-note">Chưa có bản tin tổng hợp cho kỳ này — đang hiển thị bản tin nhanh tạm thời.</p>
+        )}
+      {loading ? <Loading label="Đang tổng hợp bản tin công nghệ…" /> : (<>
           <div className="buzz-stories-preview">
             {(buzzData?.stories || []).map((s, idx) => (
               <div className="buzz-story-card" key={idx}>
@@ -165,8 +177,8 @@ function AIBuzzModal({ isOpen, onClose }) {
             <span className="buzz-label"><Copy size={13} /> NỘI DUNG BẢN TIN ĐỂ ĐĂNG FANPAGE / LINKEDIN:</span>
             <textarea readOnly value={buzzData?.full_bulletin_text || ''} rows={10} />
           </div>
-        </div>
-      )}
+        </>)}
+      </div>
 
       <div className="modal-footer">
         <button className="button secondary" onClick={onClose}>Đóng</button>

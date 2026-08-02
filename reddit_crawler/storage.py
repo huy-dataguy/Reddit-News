@@ -41,6 +41,7 @@ _PRIMARY_KEYS = {
     "user_bookmark": ("post_id",),
     "user_read_state": ("post_id",),
     "ai_social_roundup": ("cluster_id",),
+    "ai_buzz_bulletin": ("bulletin_id",),
     "mart_post_quality": ("post_id",),
 }
 
@@ -430,6 +431,11 @@ class Storage:
         if not row.get("cluster_id"):
             raise ValueError("ai_social_roundup thiếu cluster_id")
         self._upsert("ai_social_roundup", row)
+
+    def upsert_ai_buzz_bulletin(self, row: dict[str, Any]) -> None:
+        if not row.get("bulletin_id"):
+            raise ValueError("ai_buzz_bulletin thiếu bulletin_id")
+        self._upsert("ai_buzz_bulletin", row)
 
     def upsert_mart_post_quality(self, row: dict[str, Any]) -> None:
         if not row.get("post_id"):

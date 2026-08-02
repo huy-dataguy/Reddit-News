@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from pydantic import BaseModel, Field
 from .analytics import (
     DOMAIN_META,
     PERIOD_SECONDS,
+    _connect_readonly,
     classify_domain,
     post_detail,
     roundup_social_posts,
@@ -1644,4 +1646,314 @@ def generate_post_analysis_v2(
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "payload": payload,
+    }
+
+
+# ---------------------------------------------------------------------------
+# AI Buzz Bulletin — tổng kết tuần / tháng kiểu VNPT AI
+# ---------------------------------------------------------------------------
+
+class BuzzItem(BaseModel):
+    headline: str = Field(description="Một mục tin tiếng Việt: tên + sự kiện, ngắn gọn, chuẩn báo chí")
+    snippet: str = Field(default="", description="1-2 câu lý do sự kiện đáng chú ý (rút từ dữ liệu, không bịa)")
+
+
+class BuzzItems(BaseModel):
+    items: list[BuzzItem] = Field(description="Từ 6 đến 9 mục tin, đúc kết từ toàn bộ dữ liệu đầu vào")
+
+
+_BUZZ_ITEM_MAX = 160
+
+_BUZZ_INSTRUCTIONS = """Bạn là biên tập viên bản tin công nghệ AI kiểu VNPT AI (tiếng Việt).
+Đầu vào là các bài Reddit + comment nổi bật trong giai đoạn. Nhiệm vụ:
+1. Đúc kết 6-9 MỤC TIN chuẩn báo chí, MỖI MỤC LÀ MỘT CÂU hoàn chỉnh có
+   tên sản phẩm/công ty/model + sự kiện chính (VD: "GPT-Live gây chú ý với
+   khả năng phiên dịch thời gian thực").
+2. Gộp nhiều bài/comment CÙNG chủ đề thành MỘT mục tin (không lặp).
+3. Ưu tiên sự kiện lớn, model release, benchmark, chính sách, an ninh mạng.
+4. Chỉ dùng thông tin CÓ TRONG dữ liệu đầu vào; không bịa, không thêm số liệu.
+5. Mỗi item có snippet 1-2 câu giải thích vì sao đáng chú ý, rút từ dữ liệu.
+6. Tiếng Việt tự nhiên, giọng báo chí công nghệ, không dùng emoji trong item.
+Trả JSON đúng schema: {"items": [{"headline": "...", "snippet": "..."}]}"""
+
+
+def buzz_window(period: str, now: float | None = None) -> tuple[float, float, str, str]:
+    """Cửa sổ thống kê + nhãn tiếng Việt/Anh cho bản tin.
+
+    week  -> tuần ISO trước (Thứ 2 -> Chủ nhật)
+    month -> tháng trước
+    """
+    now = time.time() if now is None else now
+    d = dt.datetime.fromtimestamp(now, dt.timezone.utc)
+    if period == "week":
+        iso = d.isocalendar()
+        monday_this = dt.datetime.fromisocalendar(iso.year, iso.week, 1).replace(tzinfo=dt.timezone.utc)
+        monday_prev = monday_this - dt.timedelta(days=7)
+        prev_iso = monday_prev.isocalendar()
+        vi_label = f"TUẦN {prev_iso.week}/{prev_iso.year}"
+        en_label = f"WEEK {prev_iso.week}/{prev_iso.year}"
+        return monday_prev.timestamp(), monday_this.timestamp(), vi_label, en_label
+    year, month = d.year, d.month
+    if month == 1:
+        year, month = year - 1, 12
+    else:
+        month -= 1
+    month_start = dt.datetime(year, month, 1, tzinfo=dt.timezone.utc)
+    if month == 12:
+        next_start = dt.datetime(year + 1, 1, 1, tzinfo=dt.timezone.utc)
+    else:
+        next_start = dt.datetime(year, month + 1, 1, tzinfo=dt.timezone.utc)
+    vi_label = f"THÁNG {month}/{year}"
+    en_label = f"{month_start.strftime('%B').upper()}/{year}"
+    return month_start.timestamp(), next_start.timestamp(), vi_label, en_label
+
+
+def build_buzz_bundle(
+    db_path: str | Path, window_start: float, window_end: float, limit: int = 60,
+) -> list[dict]:
+    """Toàn bộ bài chính trong giai đoạn + phân tích + comment tiêu biểu."""
+    conn = _connect_readonly(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT p.post_id, p.title, p.subreddit_id, p.score, p.num_comments,
+                   s.display_name AS subreddit
+            FROM fact_post p
+            LEFT JOIN dim_subreddit s ON s.subreddit_id = p.subreddit_id
+            WHERE p.created_utc >= ? AND p.created_utc < ?
+                  AND COALESCE(p.score, 0) > 0
+            ORDER BY p.score DESC
+            LIMIT ?
+            """,
+            (window_start, window_end, limit),
+        ).fetchall()
+        bundle = []
+        for row in rows:
+            post_id = row["post_id"]
+            analysis = None
+            for table in ("ai_post_analysis_v2", "ai_post_analysis"):
+                arow = conn.execute(
+                    f"SELECT payload_json, status FROM {table} WHERE post_id=? AND status='success' "
+                    "ORDER BY generated_at DESC LIMIT 1",
+                    (post_id,),
+                ).fetchone()
+                if arow:
+                    try:
+                        analysis = json.loads(arow["payload_json"] or "{}")
+                    except json.JSONDecodeError:
+                        analysis = {}
+                    break
+            comments = [
+                c["body"][:240] for c in conn.execute(
+                    "SELECT body FROM fact_comment WHERE post_id=? ORDER BY score DESC LIMIT 5",
+                    (post_id,),
+                ).fetchall()
+            ]
+            bundle.append({
+                "post_id": post_id,
+                "title": row["title"],
+                "subreddit": row["subreddit"] or row["subreddit_id"] or "unknown",
+                "score": row["score"] or 0,
+                "num_comments": row["num_comments"] or 0,
+                "topic": (analysis or {}).get("topic") or (analysis or {}).get("verdict") or "",
+                "comments": comments,
+            })
+    finally:
+        conn.close()
+    return bundle
+
+
+def _local_buzz_items(bundle: list[dict]) -> list[BuzzItem]:
+    """Fallback không LLM: mỗi bài chính là một mục tin (chưa đúc kết đa bài)."""
+    items = []
+    for item in bundle[:10]:
+        headline = (item.get("topic") or item.get("title") or "").strip()
+        headline = " ".join(headline.split())
+        if len(headline) > _BUZZ_ITEM_MAX:
+            headline = headline[:_BUZZ_ITEM_MAX - 1].rstrip() + "…"
+        if not headline:
+            continue
+        items.append(BuzzItem(
+            headline=headline,
+            snippet=f"Từ r/{item.get('subreddit') or 'reddit'}: {item.get('score') or 0} điểm, "
+                    f"{item.get('num_comments') or 0} bình luận.",
+        ))
+        if len(items) >= 9:
+            break
+    return items
+
+
+def gemini_buzz_bulletin(bundle: list[dict], model: str) -> tuple[list[BuzzItem], int, int]:
+    from google import genai
+    from google.genai import types
+
+    def call(client):
+        response = client.models.generate_content(
+            model=model,
+            contents=(
+                "Tạo bản tin công nghệ AI Buzz từ dữ liệu Reddit giai đoạn. "
+                "Trả đúng JSON schema.\nINPUT_SOURCES:\n"
+                + json.dumps(bundle, ensure_ascii=False)
+            ),
+            config=types.GenerateContentConfig(
+                system_instruction=_BUZZ_INSTRUCTIONS,
+                response_mime_type="application/json",
+                response_schema=BuzzItems.model_json_schema(),
+                temperature=0.4,
+            ),
+        )
+        raw = (response.text or "").strip()
+        if not raw:
+            raise RuntimeError("Gemini không trả text output")
+        try:
+            parsed = BuzzItems.model_validate(json.loads(raw))
+        except Exception:
+            parsed = BuzzItems.model_validate(_parse_digest_json(raw))
+        usage = response.usage_metadata
+        return (
+            parsed.items,
+            getattr(usage, "prompt_token_count", 0) or 0,
+            getattr(usage, "candidates_token_count", 0) or 0,
+        )
+
+    return _run_gemini_with_rotation(call)
+
+
+def openai_buzz_bulletin(bundle: list[dict], model: str) -> tuple[list[BuzzItem], int, int]:
+    from openai import OpenAI
+
+    client = OpenAI()
+    response = client.responses.parse(
+        model=model,
+        instructions=_BUZZ_INSTRUCTIONS,
+        input="INPUT_SOURCES:\n" + json.dumps(bundle, ensure_ascii=False),
+        text_format=BuzzItems,
+        text={"verbosity": "low"},
+        reasoning={"effort": "low"},
+        max_output_tokens=3000,
+        store=False,
+    )
+    if response.output_parsed is None:
+        raise RuntimeError("OpenAI không trả structured output")
+    usage = response.usage
+    return (
+        response.output_parsed.items,
+        getattr(usage, "input_tokens", 0) or 0,
+        getattr(usage, "output_tokens", 0) or 0,
+    )
+
+
+def _buzz_clean(headline: str) -> str:
+    text = " ".join((headline or "").split())
+    if len(text) > _BUZZ_ITEM_MAX:
+        text = text[:_BUZZ_ITEM_MAX - 1].rstrip() + "…"
+    return text
+
+
+def generate_buzz_bulletin(
+    db_path: str, period: str = "week", provider: str = "auto", limit: int = 60,
+) -> dict:
+    """Sinh bản tin AI Buzz cho period week|month, lưu ai_buzz_bulletin."""
+    if period not in {"week", "month"}:
+        raise ValueError("period phải là 'week' hoặc 'month'")
+    window_start, window_end, vi_label, en_label = buzz_window(period)
+    bundle = build_buzz_bundle(db_path, window_start, window_end, limit)
+    if not bundle:
+        raise RuntimeError("Không có bài trong giai đoạn để làm bản tin")
+    openai_model = os.environ.get("OPENAI_MODEL", "gpt-5.6-luna")
+    gemini_model = os.environ.get("GEMINI_BUZZ_MODEL", "gemini-3.5-flash")
+    openai_available = bool(os.environ.get("OPENAI_API_KEY"))
+    gemini_available = bool(os.environ.get("GEMINI_API_KEY"))
+    if provider == "gemini" and not gemini_available:
+        raise RuntimeError("Thiếu GEMINI_API_KEY")
+    if provider == "openai" and not openai_available:
+        raise RuntimeError("Thiếu OPENAI_API_KEY")
+    candidates = (
+        [provider] if provider != "auto" else
+        (["gemini"] if gemini_available else [])
+        + (["openai"] if openai_available else [])
+        + ["local"]
+    )
+    selected = "local"
+    model = None
+    errors: list[str] = []
+    input_tokens = output_tokens = 0
+    items: list[BuzzItem] = []
+    for candidate in candidates:
+        if candidate == "local":
+            selected = "local-fallback" if errors else "local"
+            items = _local_buzz_items(bundle)
+            break
+        try:
+            for attempt in range(1, 5):
+                try:
+                    if candidate == "gemini":
+                        items, input_tokens, output_tokens = gemini_buzz_bulletin(bundle, gemini_model)
+                        selected, model = "gemini", gemini_model
+                    else:
+                        items, input_tokens, output_tokens = openai_buzz_bulletin(bundle, openai_model)
+                        selected, model = "openai", openai_model
+                    break
+                except Exception as exc:
+                    if attempt < 4 and (
+                        "name resolution" in str(exc).lower()
+                        or "connection" in str(exc).lower()
+                        or "timeout" in str(exc).lower()
+                    ):
+                        time.sleep(6)
+                    else:
+                        raise
+            break
+        except Exception as exc:
+            if provider != "auto":
+                raise
+            errors.append(f"{candidate}={type(exc).__name__}: {str(exc)[:400]}")
+    if not items:
+        raise RuntimeError("Không provider nào tạo được mục tin")
+    clean_items = [BuzzItem(headline=_buzz_clean(i.headline), snippet=i.snippet) for i in items]
+    bullets = "\n".join(f"🔹  {item.headline}" for item in clean_items)
+    period_word_vi = "tuần" if period == "week" else "tháng"
+    full_text = (
+        f"★ BẢN TIN CÔNG NGHỆ {vi_label} | AI BUZZ {en_label}.\n"
+        f"Cùng VNPT AI điểm qua một số bản tin công nghệ nổi bật về "
+        f"Trí tuệ nhân tạo (AI) trong {period_word_vi} {vi_label.split()[-1]} nhé: \n"
+        f"{bullets}\n"
+        "Xem nội dung chi tiết trong từng ảnh"
+    )
+    title = f"★ BẢN TIN CÔNG NGHỆ {vi_label} | AI BUZZ"
+    stories = [{
+        "badge": ["🔹", "🔥", "⚡", "🚀", "💡", "🛡️", "🤖"][i % 7],
+        "headline": item.headline,
+        "snippet": item.snippet,
+    } for i, item in enumerate(clean_items)]
+    now = time.time()
+    bulletin_id = uuid.uuid4().hex
+    store = Storage(db_path, None)
+    try:
+        store.upsert_ai_buzz_bulletin({
+            "bulletin_id": bulletin_id, "period": period,
+            "window_start": window_start, "window_end": window_end,
+            "provider": selected, "model": model,
+            "status": "success", "title": title,
+            "full_bulletin_text": full_text,
+            "payload_json": json.dumps({"stories": stories}, ensure_ascii=False),
+            "source_count": len(bundle), "input_tokens": input_tokens,
+            "output_tokens": output_tokens, "generated_at": now,
+            "error": " | ".join(errors) or None,
+        })
+        store.commit()
+    finally:
+        store.close()
+    return {
+        "bulletin_id": bulletin_id,
+        "period": period,
+        "provider": selected,
+        "model": model,
+        "title": title,
+        "full_bulletin_text": full_text,
+        "stories": stories,
+        "source_count": len(bundle),
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "generated_at": now,
     }

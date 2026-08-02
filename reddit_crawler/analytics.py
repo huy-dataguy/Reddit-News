@@ -608,6 +608,37 @@ def latest_ai_digest(
     return result
 
 
+def latest_ai_buzz_bulletin(
+    db_path: str | Path,
+    period: str = "month",
+) -> dict[str, Any] | None:
+    """Bulletin AI Buzz mới nhất của một period (week|month)."""
+    conn = _connect_readonly(db_path)
+    try:
+        row = conn.execute(
+            """
+            SELECT bulletin_id, period, window_start, window_end, provider, model,
+                   status, title, full_bulletin_text, payload_json, source_count,
+                   input_tokens, output_tokens, generated_at, error
+            FROM ai_buzz_bulletin
+            WHERE period=? AND status='success'
+            ORDER BY generated_at DESC LIMIT 1
+            """,
+            (period,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        payload = json.loads(result.pop("payload_json") or "{}")
+    except json.JSONDecodeError:
+        payload = {}
+    result["payload"] = payload
+    return result
+
+
 def database_stats(db_path: str | Path = "reddit.db") -> dict[str, Any]:
     conn = _connect_readonly(db_path)
     try:
