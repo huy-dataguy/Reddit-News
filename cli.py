@@ -301,7 +301,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
         f"digest={stages['digest']['digest_id']}, "
         f"report={stages['report']['markdown_path']}"
     )
-    return 0 if result["status"] == "success" else 2
+    return 0 if result["status"] in {"success", "partial"} else 2
 
 
 def cmd_story_export(args: argparse.Namespace) -> None:
