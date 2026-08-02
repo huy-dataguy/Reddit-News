@@ -177,12 +177,9 @@ def trending_posts(
     try:
         rows = conn.execute(
             """
-            WITH ranked_metrics AS (
-                SELECT post_id, observed_at, score, num_comments,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY post_id ORDER BY observed_at DESC
-                       ) AS rn
-                FROM fact_post_metrics
+            WITH window_posts AS (
+                SELECT post_id FROM fact_post
+                WHERE created_utc >= ? AND COALESCE(over_18, 0) = 0
             ),
             resource_counts AS (
                 SELECT post_id, COUNT(*) AS res_count
@@ -192,12 +189,12 @@ def trending_posts(
             SELECT p.post_id, p.title, p.selftext, p.url, p.domain, p.permalink, p.is_self,
                    p.created_utc, p.score, p.num_comments, p.upvote_ratio,
                    p.over_18, s.display_name AS subreddit,
-                   latest.observed_at AS latest_at,
-                   COALESCE(latest.score, p.score, 0) AS latest_score,
-                   COALESCE(latest.num_comments, p.num_comments, 0) AS latest_comments,
-                   previous.observed_at AS previous_at,
-                   previous.score AS previous_score,
-                   previous.num_comments AS previous_comments,
+                   lm.observed_at AS latest_at,
+                   COALESCE(lm.score, p.score, 0) AS latest_score,
+                   COALESCE(lm.num_comments, p.num_comments, 0) AS latest_comments,
+                   pm.observed_at AS previous_at,
+                   pm.score AS previous_score,
+                   pm.num_comments AS previous_comments,
                    a.status AS article_status,
                    SUBSTR(a.body_text, 1, 281) AS article_excerpt,
                    m.image_url, m.thumbnail_url,
@@ -217,13 +214,19 @@ def trending_posts(
             LEFT JOIN ai_post_analysis_v2 pa2 ON pa2.post_id = p.post_id AND pa2.status='success'
             LEFT JOIN ai_post_analysis pa1 ON pa1.post_id = p.post_id AND pa1.status='success'
             LEFT JOIN resource_counts rc ON rc.post_id = p.post_id
-            LEFT JOIN ranked_metrics latest
-                   ON latest.post_id = p.post_id AND latest.rn = 1
-            LEFT JOIN ranked_metrics previous
-                   ON previous.post_id = p.post_id AND previous.rn = 2
+            LEFT JOIN fact_post_metrics lm
+                   ON lm.post_id = p.post_id AND lm.observed_at = (
+                       SELECT MAX(observed_at) FROM fact_post_metrics m
+                       WHERE m.post_id = p.post_id
+                   )
+            LEFT JOIN fact_post_metrics pm
+                   ON pm.post_id = p.post_id AND pm.observed_at = (
+                       SELECT MAX(observed_at) FROM fact_post_metrics m
+                       WHERE m.post_id = p.post_id AND m.observed_at < lm.observed_at
+                   )
             WHERE p.created_utc >= ? AND COALESCE(p.over_18, 0) = 0
             """,
-            (cutoff,),
+            (cutoff, cutoff),
         ).fetchall()
         mart: dict[str, dict[str, Any]] = {}
         if use_mart:
