@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/Reddit
 EnvironmentFile=-/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.env
-ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py roundup-social --hours 3 --top 3 --provider auto
+ExecStart=/usr/bin/flock --exclusive --wait 600 %t/reddit-radar-pipeline.lock /bin/bash -c '"/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py pipeline --period 3h --enrich-limit 0 --analysis-limit 10 --digest-limit 0 --provider auto && "/home/dataguy/Documents/01 - Projects/_Personal/Reddit/.venv/bin/python" cli.py roundup-social --hours 3 --top 3 --provider auto'
 TimeoutStartSec=30min
 Nice=10
 
