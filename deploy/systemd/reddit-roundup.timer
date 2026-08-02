@@ -3,7 +3,7 @@ Description=Run the hourly social roundup every hour
 
 [Timer]
 OnBootSec=5min
-OnUnitInactiveSec=1h
+OnUnitInactiveSec=30min
 Persistent=true
 RandomizedDelaySec=2min
 
