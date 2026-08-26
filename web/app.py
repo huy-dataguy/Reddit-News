@@ -33,6 +33,7 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent
 DIST = ROOT / "dist"
 DB_PATH = os.environ.get("REDDIT_DB_PATH", "reddit.db")
+SUBS_FILE = ROOT.parent / "jobs" / "subs.txt"
 
 app = FastAPI(title="Reddit Radar", version="1.1.0")
 api = APIRouter()
@@ -111,6 +112,83 @@ def _connect_write() -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), timeout=60)
     conn.execute("PRAGMA busy_timeout=60000")
     return conn
+
+
+# ── Subreddit config (jobs/subs.txt) ────────────────────────────────────────
+_SUB_NAME_RE = re.compile(r"^[A-Za-z0-9_]{3,21}$")
+_MAX_SUBS = 100
+
+
+def _normalize_sub(name: str) -> str:
+    return (name or "").strip().removeprefix("r/").removeprefix("/").strip()
+
+
+def _load_subs_file(path: Path) -> list[str]:
+    subs: list[str] = []
+    if not path.exists():
+        return subs
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.split("#", 1)[0].strip()
+        if not line:
+            continue
+        subs.append(line.removeprefix("r/").lstrip("/"))
+    return subs
+
+
+def _write_subs_file(path: Path, names: list[str]) -> None:
+    """Ghi danh sách sub (giữ nguyên các dòng comment/trống) một cách atomic."""
+    comments: list[str] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                comments.append(line)
+    text = "\n".join(comments)
+    if comments:
+        text += "\n"
+    text += "".join(f"{name}\n" for name in names)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f"{path.suffix}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _subs_snapshot() -> dict[str, Any]:
+    subs = _load_subs_file(SUBS_FILE)
+    per_sub: dict[str, dict[str, Any]] = {name: {} for name in subs}
+    try:
+        conn = _connect_readonly()
+        try:
+            if _table_exists(conn, "fact_post") and _table_exists(conn, "dim_subreddit"):
+                rows = conn.execute(
+                    """
+                    SELECT d.display_name AS name, COUNT(p.post_id) AS post_count,
+                           MAX(p.fetched_at) AS last_fetched_at
+                    FROM dim_subreddit d
+                    LEFT JOIN fact_post p ON p.subreddit_id = d.subreddit_id
+                    GROUP BY d.subreddit_id
+                    """
+                ).fetchall()
+                for row in rows:
+                    key = row["name"]
+                    if key in per_sub:
+                        per_sub[key] = {
+                            "post_count": int(row["post_count"] or 0),
+                            "last_fetched_at": float(row["last_fetched_at"]) if row["last_fetched_at"] else None,
+                        }
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error):
+        per_sub = {name: {} for name in subs}
+    try:
+        label = str(SUBS_FILE.relative_to(ROOT.parent))
+    except ValueError:
+        label = str(SUBS_FILE)
+    return {
+        "count": len(subs),
+        "file": label,
+        "subs": [{"name": name, **per_sub.get(name, {})} for name in subs],
+    }
 
 
 @app.middleware("http")
@@ -292,11 +370,17 @@ def _unified_knowledge_items(
 
 
 def _knowledge_feed_data(
-    *, domain: str | None, query: str, limit: int, offset: int,
+    *, domain: str | None, query: str, limit: int, offset: int, sub: str | None = None,
 ) -> dict[str, Any]:
     conn = _connect_readonly()
     try:
         items = _unified_knowledge_items(conn)
+        # Gather all subreddits that have posts (not just analyzed ones)
+        all_sub_rows = conn.execute(
+            "SELECT d.display_name, COUNT(f.post_id) AS cnt "
+            "FROM fact_post f JOIN dim_subreddit d ON f.subreddit_id = d.subreddit_id "
+            "GROUP BY d.display_name"
+        ).fetchall() if _table_exists(conn, "fact_post") else []
     finally:
         conn.close()
 
@@ -321,8 +405,26 @@ def _knowledge_feed_data(
         for key, count in sorted(domain_counts.items(), key=lambda pair: (-pair[1], pair[0]))
     ]
 
+    # Build subreddit chips from ALL subs in dim_subreddit, merge with analysis counts
+    sub_counts: dict[str, int] = {}
+    for item in items:
+        name = str(item.get("subreddit") or "").strip()
+        if name:
+            sub_counts[name] = sub_counts.get(name, 0) + 1
+    # Include all subreddits that have posts (even if not yet analyzed)
+    for row in all_sub_rows:
+        name = str(row["display_name"] or "").strip()
+        if name and name not in sub_counts:
+            sub_counts[name] = 0  # has posts but no analysis yet
+    subreddits = [
+        {"name": name, "count": count}
+        for name, count in sorted(sub_counts.items(), key=lambda pair: (-pair[1], pair[0].casefold()))
+    ]
+
     if domain and domain != "all":
         items = [item for item in items if item.get("domain_id") == domain]
+    if sub and sub != "all":
+        items = [item for item in items if str(item.get("subreddit") or "").casefold() == sub.casefold()]
     total = len(items)
     page = items[offset:offset + limit]
     return {
@@ -332,6 +434,7 @@ def _knowledge_feed_data(
         "offset": offset,
         "has_more": offset + len(page) < total,
         "domains": domains,
+        "subreddits": subreddits,
         "items": page,
     }
 
@@ -513,6 +616,48 @@ def stats() -> dict[str, Any]:
     return values
 
 
+@api.get("/subs")
+def subs_list() -> dict[str, Any]:
+    """Danh sách subreddit nguồn crawl hiện tại (đọc từ jobs/subs.txt)."""
+    try:
+        return _subs_snapshot()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Không đọc được tệp subreddit: {exc}") from exc
+
+
+@api.post("/subs")
+def subs_update(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Ghi đè danh sách subreddit nguồn crawl vào jobs/subs.txt (atomic).
+
+    Collector (systemd timer) đọc lại file ở mỗi lần chạy nên thay đổi này
+    được áp dụng tự động cho các lần crawl tiếp theo.
+    """
+    if payload is None or "subs" not in payload or not isinstance(payload["subs"], list):
+        raise HTTPException(status_code=400, detail="payload phải là {\"subs\": [\"sub1\", ...]}")
+    if len(payload["subs"]) > _MAX_SUBS:
+        raise HTTPException(status_code=400, detail=f"Tối đa {_MAX_SUBS} subreddit")
+
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in payload["subs"]:
+        name = _normalize_sub(str(raw))
+        if not name:
+            continue
+        if not _SUB_NAME_RE.match(name):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Tên subreddit không hợp lệ: {raw!r} (3-21 ký tự, chỉ chữ/số/dấu gạch dưới)",
+            )
+        if name.casefold() not in seen:
+            seen.add(name.casefold())
+            normalized.append(name)
+    try:
+        _write_subs_file(SUBS_FILE, normalized)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Không ghi được tệp subreddit: {exc}") from exc
+    return _subs_snapshot()
+
+
 @api.get("/trending")
 def trending(
     period: str = Query("day"),
@@ -656,22 +801,24 @@ def today(
 @api.get("/knowledge/feed")
 def knowledge_feed(
     domain: str | None = Query(None),
+    sub: str | None = Query(None),
     q: str = Query("", max_length=200),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset)
+    return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset, sub=sub)
 
 
 @api.get("/knowledge/feed/v2")
 def knowledge_feed_v2(
     domain: str | None = Query(None),
+    sub: str | None = Query(None),
     q: str = Query("", max_length=200),
     limit: int = Query(30, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """Compatibility alias; the canonical feed already merges V2 and V1."""
-    return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset)
+    return _knowledge_feed_data(domain=domain, query=q, limit=limit, offset=offset, sub=sub)
 
 
 @api.get("/knowledge/{post_id}")
