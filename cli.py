@@ -56,18 +56,16 @@ def cmd_find_subs(args: argparse.Namespace) -> None:
 
 def cmd_crawl_sub(args: argparse.Namespace) -> None:
     client = make_client()
-    store = Storage(db_path=args.db, raw_dir=args.raw)
+    store = Storage(db_path=args.db, raw_dir=None)
 
     sub_meta = crawl.fetch_subreddit(client, args.subreddit)
     store.upsert_subreddit(sub_meta)
-    store.write_raw("subreddit", [sub_meta])
     sub_id = sub_meta.get("id")
     print(f"r/{args.subreddit}: {sub_meta.get('subscribers'):,} subs")
 
     n_posts = n_comments = 0
     for post in crawl.iter_listing(client, args.subreddit, sort=args.sort, t=args.time, max_items=args.max):
         store.upsert_post(post, subreddit_id=sub_id)
-        store.write_raw("post", [post])
         n_posts += 1
 
         if args.comments:
@@ -77,7 +75,6 @@ def cmd_crawl_sub(args: argparse.Namespace) -> None:
             )
             for c in comments:
                 store.upsert_comment(c, post_id=post["id"], subreddit_id=sub_id)
-            store.write_raw("comment", comments)
             n_comments += len(comments)
 
         if n_posts % 25 == 0:
@@ -90,29 +87,26 @@ def cmd_crawl_sub(args: argparse.Namespace) -> None:
 
 def cmd_crawl_post(args: argparse.Namespace) -> None:
     client = make_client()
-    store = Storage(db_path=args.db, raw_dir=args.raw)
+    store = Storage(db_path=args.db, raw_dir=None)
     post, comments = crawl.fetch_post_with_comments(
         client, args.url, sort="top", depth=args.depth, resolve_more=not args.no_more,
     )
     sub_id = post.get("subreddit_id", "").split("_")[-1] or None
     store.upsert_post(post, subreddit_id=sub_id)
-    store.write_raw("post", [post])
     for c in comments:
         store.upsert_comment(c, post_id=post["id"], subreddit_id=sub_id)
-    store.write_raw("comment", comments)
     store.close()
     print(f"'{post['title'][:60]}' -> {len(comments)} comment vào {args.db}")
 
 
 def cmd_crawl_user(args: argparse.Namespace) -> None:
     client = make_client()
-    store = Storage(db_path=args.db, raw_dir=args.raw)
+    store = Storage(db_path=args.db, raw_dir=None)
     u = crawl.fetch_user(client, args.name)
     if not u:
         print(f"Không lấy được user {args.name} (bị xóa/suspend?)")
         return
     store.upsert_author(u)
-    store.write_raw("user", [u])
     store.close()
     print(f"u/{u['name']}: karma={u.get('total_karma'):,}  tạo={u.get('created_utc')}")
 
@@ -130,7 +124,7 @@ def cmd_incremental(args: argparse.Namespace) -> None:
             if args.only else load_subs(args.subs_file))
     print(f"Incremental {len(subs)} sub: {', '.join(subs)}")
     client = make_client()
-    store = Storage(db_path=args.db, raw_dir=args.raw)
+    store = Storage(db_path=args.db, raw_dir=None)
     try:
         res = run_incremental(
             client, store, subs, sort=args.sort, comments=args.comments,
@@ -150,7 +144,7 @@ def cmd_backfill(args: argparse.Namespace) -> None:
     if after >= before:
         print("Lỗi: --after phải nhỏ hơn --before"); return
     print(f"Backfill r/{args.subreddit} [{_ymd(after)} → {_ymd(before)}] kind={args.kind}")
-    store = Storage(db_path=args.db, raw_dir=args.raw)
+    store = Storage(db_path=args.db, raw_dir=None)
     try:
         if args.kind in ("posts", "both"):
             n = backfill_posts(store, args.subreddit, after, before, args.sleep, args.max_pages)
@@ -184,7 +178,7 @@ def cmd_enrich(args: argparse.Namespace) -> int:
 
     result = run_enrichment(
         args.db,
-        raw_dir=args.raw,
+        raw_dir=None,
         period=args.period,
         limit=args.limit,
         depth=args.depth,
@@ -282,7 +276,7 @@ def cmd_pipeline(args: argparse.Namespace) -> int:
 
     result = run_pipeline(
         db_path=args.db,
-        raw_dir=args.raw,
+        raw_dir=None,
         period=args.period,
         enrich_limit=args.enrich_limit,
         analysis_limit=args.analysis_limit,
@@ -460,7 +454,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--db", default=os.environ.get("REDDIT_DB_PATH", "reddit.db"),
         help="đường dẫn SQLite (mặc định REDDIT_DB_PATH hoặc reddit.db)",
     )
-    p.add_argument("--raw", default="raw", help="thư mục JSONL raw (đặt '' để tắt)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("probe", help="kiểm tra token + lấy thử vài post").set_defaults(func=cmd_probe)
@@ -732,7 +725,7 @@ def cmd_data_run(args):
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = build_parser().parse_args()
-    if args.raw == "":
+    if getattr(args, "raw", None) == "":
         args.raw = None
     result = args.func(args)
     return int(result or 0)
