@@ -13,6 +13,7 @@ from typing import Any
 from jobs.enrich import run_enrichment
 from jobs.report import create_report
 from reddit_crawler.analytics import PERIOD_SECONDS, trending_posts
+from reddit_crawler.analytics import balanced_candidate_posts
 from reddit_crawler.llm import generate_digest, generate_post_analysis_v2
 from reddit_crawler.storage import Storage
 
@@ -30,11 +31,13 @@ def _analysis_state(db_path: str, post_id: str) -> dict[str, Any]:
             """
             SELECT
                 (SELECT COUNT(*) FROM fact_comment WHERE post_id=?) AS comment_count,
-                provider,
-                status,
-                generated_at
-            FROM (SELECT 1)
-            LEFT JOIN ai_post_analysis_v2 ON post_id=?
+                COALESCE(p.num_comments, 0) AS reddit_comment_count,
+                a2.provider,
+                a2.status,
+                a2.generated_at
+            FROM (SELECT ? AS post_id) AS refs
+            LEFT JOIN ai_post_analysis_v2 a2 ON a2.post_id = refs.post_id
+            LEFT JOIN fact_post p ON p.post_id = refs.post_id
             """,
             (post_id, post_id),
         ).fetchone()
@@ -73,7 +76,7 @@ def analyze_top_posts_v2(
     """
     if period not in PERIOD_SECONDS:
         raise ValueError(f"period không hợp lệ: {period}")
-    if provider not in {"auto", "gemini", "openai", "local"}:
+    if provider not in {"auto", "gemini", "openai", "openrouter", "local"}:
         raise ValueError(f"provider không hợp lệ: {provider}")
     bounded_limit = max(0, min(int(limit), 50))
     result: dict[str, Any] = {
@@ -95,7 +98,8 @@ def analyze_top_posts_v2(
     # Ensure V2 schema exists before opening read-only candidate queries.
     store = Storage(db_path, None)
     store.close()
-    candidates = trending_posts(
+    # Sử dụng balanced selection để mỗi sub được phân bổ ngang hàng
+    candidates = balanced_candidate_posts(
         db_path,
         period=period,
         limit=max(20, min(bounded_limit * 5, 200)),
@@ -109,7 +113,11 @@ def analyze_top_posts_v2(
             break
         post_id = item["post_id"]
         state = _analysis_state(db_path, post_id)
-        if int(state.get("comment_count") or 0) == 0:
+        # Dùng Reddit's num_comments thay vì đếm rows trong fact_comment
+        # (fact_comment có thể chưa enriched nhưng Reddit nói có comments)
+        reddit_comments = int(state.get("reddit_comment_count") or 0)
+        enriched_comments = int(state.get("comment_count") or 0)
+        if reddit_comments == 0 and enriched_comments == 0:
             result["skipped_no_comments"] += 1
             continue
         generated_at = float(state.get("generated_at") or 0)

@@ -154,6 +154,91 @@ def _load_quality_mart(conn: sqlite3.Connection, post_ids: list[str]) -> dict[st
     return {row["post_id"]: dict(row) for row in rows}
 
 
+def balanced_candidate_posts(
+    db_path: str | Path = "reddit.db",
+    *,
+    period: str = "day",
+    limit: int = 30,
+    now: float | None = None,
+) -> list[dict[str, Any]]:
+    """Chọn ứng viên phân tích với phân bổ ngang hàng giữa các subreddit.
+
+    Mỗi subreddit nhận phần trăm post bằng nhau trong tổng limit,
+    sau đó sắp xếp theo score giảm dần trong mỗi sub.
+    Điều này đảm bảo sub nhỏ (CLine, ZaiGLM) không bị sub lớn
+    (ClaudeAI, codex) lấn át.
+    """
+    if period not in PERIOD_SECONDS:
+        raise ValueError(f"period phải là một trong: {', '.join(PERIOD_SECONDS)}")
+    limit = max(1, min(int(limit), 200))
+    now = now or time.time()
+    cutoff = now - PERIOD_SECONDS[period]
+    conn = _connect_readonly(db_path)
+    try:
+        # Lấy tất cả sub đang có post trong cửa sổ thời gian
+        sub_rows = conn.execute(
+            """
+            SELECT s.display_name, COUNT(*) as cnt
+            FROM fact_post p
+            JOIN dim_subreddit s ON s.subreddit_id = p.subreddit_id
+            WHERE p.created_utc >= ? AND COALESCE(p.over_18, 0) = 0
+            GROUP BY s.display_name
+            ORDER BY cnt DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        if not sub_rows:
+            return []
+
+        num_subs = len(sub_rows)
+        # Mỗi sub được phân bổ ít nhất 1 bài, còn lại chia đều
+        per_sub = max(1, limit // num_subs)
+        candidates = []
+
+        for sub_row in sub_rows:
+            sub_name = sub_row["display_name"]
+            # Lấy top K post theo score trong sub này
+            rows = conn.execute(
+                """
+                SELECT p.post_id, p.title, p.selftext, p.url, p.domain, p.permalink, p.is_self,
+                       p.created_utc, p.score, p.num_comments, p.upvote_ratio,
+                       p.over_18, s.display_name AS subreddit
+                FROM fact_post p
+                JOIN dim_subreddit s ON s.subreddit_id = p.subreddit_id
+                WHERE s.display_name = ?
+                  AND p.created_utc >= ?
+                  AND COALESCE(p.over_18, 0) = 0
+                ORDER BY p.score DESC
+                LIMIT ?
+                """,
+                (sub_name, cutoff, per_sub),
+            ).fetchall()
+            for row in rows:
+                item = dict(row)
+                age_hours = max((now - (item["created_utc"] or now)) / 3600, 0.0)
+                item.update({
+                    "age_hours": round(age_hours, 2),
+                    "trend_score": 0.0,
+                    "composite_value_score": float(item.get("score") or 0),
+                    "score_velocity": 0.0,
+                    "comment_velocity": 0.0,
+                    "resource_count": 0,
+                    "summary": "",
+                    "reddit_url": f"https://www.reddit.com{item['permalink']}" if item.get("permalink") else None,
+                    "has_internal_content": bool((item.get("selftext") or "").strip()),
+                    "analysis": None,
+                })
+                candidates.append(item)
+
+    finally:
+        conn.close()
+
+    # Sắp xếp toàn bộ theo score giảm dần
+    candidates.sort(key=lambda x: (x.get("score") or 0, x.get("created_utc") or 0), reverse=True)
+    return candidates[:limit]
+
+
 def trending_posts(
     db_path: str | Path = "reddit.db",
     *,
