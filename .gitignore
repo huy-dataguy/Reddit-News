@@ -16,3 +16,4 @@ AGENTS.md.draft
 web/dist/
 push_subscriptions.json
 user_prefs.json
+.playwright-mcp/

@@ -156,7 +156,6 @@ def backfill_posts(store: Storage, subreddit: str, after: int, before: int,
         for it in items:
             sid = _short_id(it.get("subreddit_id"))
             store.upsert_post(_norm_post(it), subreddit_id=sid)
-        store.write_raw("post_backfill", items)
         store.commit()
 
     return _paginate(session, "posts/search", subreddit, after, before,
@@ -174,7 +173,6 @@ def backfill_comments(store: Storage, subreddit: str, after: int, before: int,
                 continue
             sid = _short_id(it.get("subreddit_id"))
             store.upsert_comment(_norm_comment(it), post_id=post_id, subreddit_id=sid)
-        store.write_raw("comment_backfill", items)
         store.commit()
 
     return _paginate(session, "comments/search", subreddit, after, before,

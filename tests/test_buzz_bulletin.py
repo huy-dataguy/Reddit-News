@@ -101,6 +101,20 @@ class BuzzBulletinTests(unittest.TestCase):
         self.assertEqual(saved["payload"]["stories"], result["stories"])
 
     def test_month_generate_uses_month_window(self) -> None:
+        month_start, month_end, _, _ = buzz_window("month")
+        post = {
+            "id": "inmonth", "name": "t3_inmonth", "subreddit_id": "t5_ai",
+            "subreddit": "LocalLLaMA", "author": "alice",
+            "created_utc": (month_start + month_end) / 2,
+            "title": "Month window model release",
+            "score": 300, "num_comments": 60, "over_18": False,
+        }
+        store = Storage(str(self.db), None)
+        try:
+            store.upsert_post(post)
+            store.snapshot_metrics(post)
+        finally:
+            store.close()
         result = generate_buzz_bulletin(self.db, "month", provider="local")
         self.assertIn("THÁNG", result["full_bulletin_text"])
 

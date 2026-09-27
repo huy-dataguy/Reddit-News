@@ -5,3 +5,7 @@ artificial
 AI_Agents
 Anthropic
 claudeskills
+DeepSeek
+opencodeCLI
+CLine
+ZaiGLM

@@ -1,9 +1,6 @@
-"""Lưu trữ 2 tầng:
+"""Lưu trữ vào SQLite theo star schema (schema.sql).
 
-  BRONZE (raw): mỗi post/comment/user gốc -> JSONL append-only để tái xử lý sau.
-  GOLD (modeled): nạp vào SQLite theo star schema (schema.sql).
-
-Giữ raw giúp bạn đổi mô hình sau này mà không phải crawl lại.
+Dữ liệu được lưu trực tiếp vào database, không còn lưu raw JSONL files.
 """
 
 from __future__ import annotations
@@ -88,7 +85,7 @@ def _safe_image_url(value: Any) -> str | None:
 
 
 class Storage:
-    def __init__(self, db_path: str = "reddit.db", raw_dir: str | None = "raw") -> None:
+    def __init__(self, db_path: str = "reddit.db", raw_dir: str | None = None) -> None:
         self.conn = sqlite3.connect(db_path, timeout=30)
         has_schema = self.conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='fact_post'"
@@ -106,9 +103,7 @@ class Storage:
             self.conn.executescript(_SCHEMA_PATH.read_text())
             self._repair_legacy_references()
             self.conn.commit()
-        self.raw_dir = Path(raw_dir) if raw_dir else None
-        if self.raw_dir:
-            self.raw_dir.mkdir(parents=True, exist_ok=True)
+        self.raw_dir = None  # Raw data storage disabled - data only in database
 
     def _validate_existing_schema(self) -> None:
         tables = {
@@ -130,12 +125,8 @@ class Storage:
 
     # ---------------- BRONZE ----------------
     def write_raw(self, kind: str, records: Iterable[dict]) -> None:
-        if not self.raw_dir:
-            return
-        path = self.raw_dir / f"{kind}.jsonl"
-        with path.open("a", encoding="utf-8") as f:
-            for rec in records:
-                f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        """No-op: raw data storage disabled - data only in database."""
+        pass
 
     # ---------------- helpers ----------------
     def _upsert(

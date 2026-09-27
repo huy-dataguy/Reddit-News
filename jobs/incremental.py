@@ -112,7 +112,6 @@ def run_incremental(
 
                 store.upsert_post(post, subreddit_id=sub_id, source_stream=sort_mode)
                 store.snapshot_metrics(post)
-                store.write_raw("post", [post])
                 n_new += 1
                 last_processed_name = post.get("name")
                 if newest_utc is None or cu > newest_utc:
@@ -127,7 +126,6 @@ def run_incremental(
                             sort="top", depth=depth, resolve_more=resolve_more)
                         for c in cmts:
                             store.upsert_comment(c, post_id=post["id"], subreddit_id=sub_id)
-                        store.write_raw("comment", cmts)
                         total_cmt += len(cmts)
                     except Exception as e:
                         log.warning("comment lỗi ở post %s: %s", post.get("id"), e)
@@ -171,7 +169,6 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-per-sub", type=int, default=None,
                     help="giới hạn post/sub mỗi lần (bỏ trống = tới mốc; hữu ích cho lần đầu)")
     ap.add_argument("--db", default="reddit.db")
-    ap.add_argument("--raw", default="raw")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -180,7 +177,7 @@ def main(argv: list[str] | None = None) -> int:
     log.info("Incremental %d sub: %s", len(subs), ", ".join(subs))
 
     client = _make_client()
-    store = Storage(db_path=args.db, raw_dir=args.raw or None)
+    store = Storage(db_path=args.db, raw_dir=None)
     try:
         res = run_incremental(
             client, store, subs, sort=args.sort, comments=args.comments,

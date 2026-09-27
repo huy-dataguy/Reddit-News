@@ -4,7 +4,7 @@ import {
   Activity, AlertTriangle, ArrowLeft, ArrowRight, BarChart3, BookOpen,
   Bookmark, BookmarkCheck, Bot, BrainCircuit, CheckCircle2, ChevronRight, Clock3, Code2,
   Copy, Check, Download, ExternalLink, Eye, EyeOff, FileText, Filter, FilterX, Flame, Gauge, Globe2, Layers3, Lightbulb,
-  ListTree, Menu, MessageCircle, Moon, Radio, RefreshCw, Search, Share2, ShieldCheck, Sparkles, Star, Sun, Target,
+  ListTree, Menu, MessageCircle, Moon, Plus, Radio, RefreshCw, Search, Share2, ShieldCheck, Sparkles, Star, Sun, Target,
   ThumbsUp, TrendingUp, X, Zap, LayoutGrid, List,
 } from 'lucide-react'
 import { getJSON, withQuery } from './api'
@@ -108,6 +108,7 @@ function Logo() {
 const NAV_ITEMS = [
   ['feed', '/', 'Feed', Zap],
   ['trends', '/trends', 'Trends', TrendingUp],
+  ['subs', '/subs', 'Subreddits', ListTree],
   ['social', '/social', 'Social Studio', Share2],
   ['saved', '/saved', 'Đã lưu', Star],
 ]
@@ -462,6 +463,18 @@ function DomainChips({ domains, selected, setSelected, total }) {
   </div>
 }
 
+function SubredditChips({ subreddits, selected, setSelected, total }) {
+  return <div className="domain-chips subreddit-chips" role="group" aria-label="Lọc theo subreddit">
+    <button className={selected === 'all' ? 'active' : ''} onClick={() => setSelected('all')}>
+      <ListTree size={14} /> Mọi sub <b>{total}</b>
+    </button>
+    {subreddits.map(sub => <button key={sub.name} className={selected === sub.name ? 'active' : ''}
+      onClick={() => setSelected(sub.name)}>
+      <Radio size={13} /> r/{sub.name} <b>{sub.count}</b>
+    </button>)}
+  </div>
+}
+
 function getStoredNum(key, defaultVal) {
   try {
     const val = sessionStorage.getItem(key)
@@ -551,8 +564,9 @@ function parseUrlFeedState(limit, searchParams, pathname) {
   const offset = offsetFromUrl !== null ? offsetFromUrl : getStoredNum('rr_k_offset', 0)
   const q = params.get('q') || ''
   const domain = params.get('domain') || 'all'
+  const sub = params.get('sub') || 'all'
 
-  return { view, page: page || 1, offset, q, domain }
+  return { view, page: page || 1, offset, q, domain, sub }
 }
 
 // ─────────────────────────────────────────────
@@ -588,30 +602,32 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const [subView, setSubViewState] = useState(() => initial.view)
   const [query, setQuery] = useState(() => initial.q)
   const [domain, setDomainState] = useState(() => initial.domain)
+  const [sub, setSubState] = useState(() => initial.sub)
   const [offset, setOffsetState] = useState(() => initial.offset)
   const [readFilter, setReadFilter] = useState('all')
   const [sortBy, setSortBy] = useState('value')
 
-  const updateFeedUrl = (newView, newOffset, newQuery, newDomain) => {
+  const updateFeedUrl = (newView, newOffset, newQuery, newDomain, newSub) => {
     const pageNum = Math.floor(newOffset / limit) + 1
     const params = {}
     if (newView === 'all') params.view = 'all'
     if (pageNum > 1) params.page = pageNum
     if (newQuery && newQuery.trim()) params.q = newQuery.trim()
     if (newDomain && newDomain !== 'all') params.domain = newDomain
+    if (newSub && newSub !== 'all') params.sub = newSub
     setSearchParams(params)
   }
 
   const setSubView = (val) => {
     setSubViewState(val)
     try { sessionStorage.setItem('rr_feed_subview', val) } catch {}
-    updateFeedUrl(val, offset, query, domain)
+    updateFeedUrl(val, offset, query, domain, sub)
   }
 
   const setOffset = (val) => {
     setOffsetState(val)
     setStoredNum('rr_k_offset', val)
-    updateFeedUrl(subView, val, query, domain)
+    updateFeedUrl(subView, val, query, domain, sub)
   }
 
   const handlePageChange = (pageNum) => {
@@ -623,13 +639,19 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   const setDomain = (val) => {
     setDomainState(val)
     setOffset(0)
-    updateFeedUrl(subView, 0, query, val)
+    updateFeedUrl(subView, 0, query, val, sub)
+  }
+
+  const setSub = (val) => {
+    setSubState(val)
+    setOffset(0)
+    updateFeedUrl(subView, 0, query, domain, val)
   }
 
   const handleSearchChange = (val) => {
     setQuery(val)
     setOffset(0)
-    updateFeedUrl(subView, 0, val, domain)
+    updateFeedUrl(subView, 0, val, domain, sub)
   }
 
   // Sync local state when the URL changes (navigation, back/forward)
@@ -638,6 +660,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     setSubViewState(parsed.view)
     setQuery(parsed.q)
     setDomainState(parsed.domain)
+    setSubState(parsed.sub)
     setOffsetState(parsed.offset)
   }, [searchParams, pathname])
 
@@ -662,7 +685,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
   // Load All (knowledge)
   const loadAll = () => {
     setAllLoading(true); setAllError('')
-    getJSON(withQuery('/api/v1/knowledge/feed', { q: query.trim(), domain, limit, offset }))
+    getJSON(withQuery('/api/v1/knowledge/feed', { q: query.trim(), domain, sub, limit, offset }))
       .then(setAllData)
       .catch(err => setAllError(err.message))
       .finally(() => setAllLoading(false))
@@ -671,7 +694,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     if (subView !== 'all') return
     const timer = window.setTimeout(loadAll, 180)
     return () => window.clearTimeout(timer)
-  }, [subView, query, domain, offset])
+  }, [subView, query, domain, sub, offset])
 
   useRestoreScroll(hotData || allData)
 
@@ -680,6 +703,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
     let list = [...hotData.highlights]
     if (readFilter === 'hide') list = list.filter(i => !readSet.has(i.post_id))
     if (readFilter === 'only') list = list.filter(i => readSet.has(i.post_id))
+    if (sub !== 'all') list = list.filter(i => String(i.subreddit || '').toLowerCase() === sub.toLowerCase())
     list.sort((a, b) => {
       if (sortBy === 'value') return computePostValue(b) - computePostValue(a)
       if (sortBy === 'comments') return (b.num_comments || 0) - (a.num_comments || 0)
@@ -688,7 +712,19 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
       return 0
     })
     return list
-  }, [hotData, readFilter, sortBy, readSet])
+  }, [hotData, readFilter, sortBy, readSet, sub])
+
+  const hotSubreddits = useMemo(() => {
+    if (!hotData?.highlights) return []
+    const counts = {}
+    for (const item of hotData.highlights) {
+      const name = String(item.subreddit || '').trim()
+      if (name) counts[name] = (counts[name] || 0) + 1
+    }
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([name, count]) => ({ name, count }))
+  }, [hotData])
 
   const filteredAll = useMemo(() => {
     if (!allData?.items) return []
@@ -754,6 +790,12 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
 
     {/* SUB-VIEW: HOT NOW */}
     {subView === 'hot' && <>
+      <SubredditChips
+        subreddits={hotSubreddits}
+        selected={sub}
+        setSelected={setSub}
+        total={hotData?.highlights?.length || 0}
+      />
       <div className="feed-toolbar">
         <div className="feed-toolbar-left">
           <ReadFilterPills value={readFilter} onChange={setReadFilter} />
@@ -818,6 +860,13 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
         total={allData?.total || 0}
       />
 
+      <SubredditChips
+        subreddits={allData?.subreddits || []}
+        selected={sub}
+        setSelected={setSub}
+        total={allData?.total || 0}
+      />
+
       <div className="feed-toolbar">
         <div className="feed-toolbar-left">
           <ReadFilterPills value={readFilter} onChange={setReadFilter} />
@@ -860,7 +909,7 @@ function FeedPage({ health, savedSet, toggleSave, readSet, markRead }) {
           <Search size={32} />
           <h3>Không tìm thấy kết quả phù hợp</h3>
           <p>Thử từ khóa khác hoặc xóa bộ lọc.</p>
-          <button className="button primary" onClick={() => { handleSearchChange(''); setDomain('all'); setReadFilter('all') }}>
+          <button className="button primary" onClick={() => { handleSearchChange(''); setDomain('all'); setSub('all'); setReadFilter('all') }}>
             <FilterX size={14} /> Xóa toàn bộ bộ lọc
           </button>
         </div>}
@@ -923,6 +972,148 @@ function SavedPage({ savedSet, toggleSave, readSet, markRead }) {
           <AppLink href="/" className="button primary">Khám phá Feed ngay</AppLink>
         </div>
       )}
+  </>
+}
+
+// ─────────────────────────────────────────────
+// SUBREDDITS PAGE (quản lý nguồn crawl)
+// ─────────────────────────────────────────────
+function SubsPage() {
+  const [subs, setSubs] = useState([])
+  const [file, setFile] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [input, setInput] = useState('')
+  const [message, setMessage] = useState(null)
+  const [error, setError] = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    getJSON('/api/v1/subs')
+      .then(res => {
+        setSubs(res?.subs || [])
+        setFile(res?.file || '')
+        setError(null)
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(load, [])
+
+  const save = (nextNames) => {
+    setSaving(true)
+    setMessage(null)
+    setError(null)
+    fetch('/api/v1/subs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subs: nextNames }),
+    })
+      .then(async res => {
+        const body = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(body?.detail || `HTTP ${res.status}`)
+        setSubs(body.subs || [])
+        setFile(body.file || file)
+        setMessage(`Đã lưu ${body.count} subreddit vào ${body.file}`)
+      })
+      .catch(err => setError(err.message))
+      .finally(() => setSaving(false))
+  }
+
+  const handleAdd = () => {
+    const raw = input.trim().replace(/^r\//, '')
+    if (!raw) return
+    if (subs.some(sub => sub.name.toLowerCase() === raw.toLowerCase())) {
+      setError(`r/${raw} đã có trong danh sách`)
+      return
+    }
+    setInput('')
+    save([...subs.map(sub => sub.name), raw])
+  }
+
+  const handleRemove = (name) => {
+    save(subs.filter(sub => sub.name !== name).map(sub => sub.name))
+  }
+
+  const handleReset = () => save([])
+
+  const totalPosts = subs.reduce((sum, sub) => sum + (sub.post_count || 0), 0)
+
+  return <>
+    <section className="page-intro subs-intro">
+      <div className="intro-copy">
+        <span className="eyebrow"><ListTree size={14} /> CRAWL SOURCES</span>
+        <h1>Subreddit nguồn ({subs.length})</h1>
+        <p>Danh sách subreddit được crawl liên tục. Thay đổi ở đây được ghi thẳng vào <code>{file || 'jobs/subs.txt'}</code> và collector tự áp dụng ở lần chạy kế tiếp.</p>
+      </div>
+    </section>
+
+    {error && <div className="subs-alert subs-alert-error">
+      <AlertTriangle size={15} /> {error}
+    </div>}
+    {message && <div className="subs-alert subs-alert-ok">
+      <CheckCircle2 size={15} /> {message}
+    </div>}
+
+    <div className="subs-card">
+      <div className="subs-add-row">
+        <div className="search-box subs-input">
+          <Search size={14} />
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            placeholder="Nhập tên subreddit, ví dụ: machinelearning"
+            aria-label="Tên subreddit mới"
+            maxLength={21}
+          />
+        </div>
+        <button className="button primary" onClick={handleAdd} disabled={saving || !input.trim()}>
+          <Plus size={14} /> Thêm
+        </button>
+      </div>
+
+      {loading ? <Loading label="Đang đọc danh sách subreddit…" />
+        : subs.length ? (
+          <div className="subs-grid">
+            {subs.map(sub => (
+              <div className="sub-chip" key={sub.name}>
+                <div className="sub-chip-main">
+                  <span className="sub-chip-name">r/{sub.name}</span>
+                  <span className="sub-chip-meta">
+                    {sub.post_count != null && <> {fullNumber.format(sub.post_count)} bài
+                      {sub.last_fetched_at ? <> · crawl {relativeTime(sub.last_fetched_at)}</> : ''}
+                    </>}
+                  </span>
+                </div>
+                <button className="sub-chip-remove" onClick={() => handleRemove(sub.name)}
+                  disabled={saving} title={`Xóa r/${sub.name}`} aria-label={`Xóa r/${sub.name}`}>
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-panel">
+            <ListTree size={32} />
+            <h3>Chưa có subreddit nào</h3>
+            <p>Thêm subreddit đầu tiên để bắt đầu thu thập dữ liệu.</p>
+          </div>
+        )}
+
+      <div className="subs-footer">
+        <span className="result-line" style={{ margin: 0 }}>
+          <span><Activity size={13} /> {fullNumber.format(totalPosts)} bài đã thu thập từ {subs.length} sub</span>
+        </span>
+        <span className="subs-actions">
+          <button className="button secondary" onClick={() => load()} disabled={saving}
+            title="Tải lại danh sách từ tệp"><RefreshCw size={13} /> Làm mới</button>
+          {subs.length > 0 && <button className="button secondary danger-text" onClick={handleReset} disabled={saving}
+            title="Xóa toàn bộ danh sách">Xóa hết</button>}
+        </span>
+      </div>
+    </div>
   </>
 }
 
@@ -1616,6 +1807,7 @@ function AppShell() {
   const active = postMatch ? 'feed'
     : pathname === '/saved' ? 'saved'
     : pathname === '/social' ? 'social'
+    : pathname === '/subs' ? 'subs'
     : ['/trends', '/radar', '/signals'].includes(pathname) ? 'trends'
     : 'feed'
 
@@ -1640,6 +1832,7 @@ function AppShell() {
         <Route path="/radar" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/signals" element={<TrendsPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/social" element={<SocialStudioPage />} />
+        <Route path="/subs" element={<SubsPage />} />
         <Route path="/saved" element={<SavedPage savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />
         <Route path="/post/:postId" element={<PostDetailRoute markRead={markRead} savedSet={savedSet} toggleSave={toggleSave} />} />
         <Route path="/page/:pageNum" element={<FeedPage health={health} savedSet={savedSet} toggleSave={toggleSave} readSet={readSet} markRead={markRead} />} />

@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from jobs.incremental import load_subs
 from reddit_crawler.analytics import classify_domain
 from reddit_crawler.storage import Storage
 from web.app import app
@@ -101,9 +102,17 @@ class WebApiTests(unittest.TestCase):
         self.db_patch = patch("web.app.DB_PATH", str(self.db))
         self.db_patch.start()
 
+        self.subs_file = self.root / "subs.txt"
+        self.subs_patch = patch("web.app.SUBS_FILE", self.subs_file)
+        self.subs_patch.start()
+
     def tearDown(self) -> None:
+        self.subs_patch.stop()
         self.db_patch.stop()
         self.client.close()
+
+    def _write_subs(self, content: str) -> None:
+        self.subs_file.write_text(content, encoding="utf-8")
 
     def test_unified_feed_prioritizes_llm_and_falls_back_per_post(self) -> None:
         response = self.client.get("/api/knowledge/feed?limit=2&offset=0")
@@ -129,6 +138,13 @@ class WebApiTests(unittest.TestCase):
         domain = by_id["sec"]["domain_id"]
         filtered = self.client.get(f"/api/knowledge/feed?domain={domain}").json()
         self.assertEqual([item["post_id"] for item in filtered["items"]], ["sec"])
+
+        subs = self.client.get("/api/knowledge/feed?sub=localllama").json()
+        self.assertEqual([item["post_id"] for item in subs["items"]], ["ai"])
+        self.assertEqual(subs["total"], 1)
+        sub_names = [entry["name"] for entry in subs["subreddits"]]
+        self.assertIn("LocalLLaMA", sub_names)
+        self.assertIn("netsec", sub_names)
 
         alias = self.client.get("/api/knowledge/feed/v2?limit=20").json()
         self.assertEqual(
@@ -248,6 +264,64 @@ class WebApiTests(unittest.TestCase):
         self.assertEqual(item["source_post_ids"], ["ai", "rust"])
         self.assertIn("full_post_text", item)
         self.assertEqual(item["hour_start"], hour_start)
+
+    def test_subs_list_reads_config_file_preserving_order(self) -> None:
+        self._write_subs("# Nguồn crawl:\ncodex\nr/ClaudeAI\nartificial\n\n")
+        response = self.client.get("/api/subs")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual(
+            [sub["name"] for sub in body["subs"]],
+            ["codex", "ClaudeAI", "artificial"],
+        )
+        self.assertTrue(body["file"].endswith("subs.txt"))
+
+    def test_subs_update_writes_file_and_collector_reads_it_next_run(self) -> None:
+        self._write_subs("# Nguồn crawl:\ncodex\nClaudeAI\n")
+        response = self.client.post("/api/subs", json={
+            "subs": ["r/machinelearning", "Anthropic", "codex"],
+        })
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["count"], 3)
+        self.assertEqual(
+            [sub["name"] for sub in body["subs"]],
+            ["machinelearning", "Anthropic", "codex"],
+        )
+
+        self.assertEqual(
+            load_subs(self.subs_file),
+            ["machinelearning", "Anthropic", "codex"],
+        )
+        content = self.subs_file.read_text(encoding="utf-8")
+        self.assertIn("# Nguồn crawl:\n", content)
+        self.assertNotIn("r/ClaudeAI", content)
+
+    def test_subs_update_validates_names_and_payload(self) -> None:
+        self._write_subs("codex\n")
+        invalid = self.client.post("/api/subs", json={"subs": ["bad name!", "ok_sub"]})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertIn("không hợp lệ", invalid.json()["detail"])
+        self.assertEqual(load_subs(self.subs_file), ["codex"])
+
+        no_key = self.client.post("/api/subs", json={"names": ["codex"]})
+        self.assertEqual(no_key.status_code, 400)
+
+        empty = self.client.post("/api/subs", json={"subs": []})
+        self.assertEqual(empty.status_code, 200)
+        self.assertEqual(empty.json()["count"], 0)
+        self.assertEqual(load_subs(self.subs_file), [])
+
+    def test_subs_update_deduplicates_and_skips_blank(self) -> None:
+        response = self.client.post("/api/subs", json={
+            "subs": ["codex", "", "  ", "r/codex", "Codex", "Anthropic"],
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            [sub["name"] for sub in response.json()["subs"]],
+            ["codex", "Anthropic"],
+        )
 
     def _count(self, table: str) -> int:
         import sqlite3

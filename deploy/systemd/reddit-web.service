@@ -31,7 +31,10 @@ LockPersonality=yes
 SystemCallFilter=@system-service
 KeyringMode=private
 # Web ghi user_bookmark / user_read_state vào reddit.db
+# và ghi jobs/subs.txt (quản lý subreddit nguồn từ Web UI; cần ghi cả
+# thư mục jobs/ vì atomic write tạo file .tmp rồi os.replace)
 ReadWritePaths=/home/dataguy/Documents/01 - Projects/_Personal/Reddit/reddit.db
+ReadWritePaths=/home/dataguy/Documents/01 - Projects/_Personal/Reddit/jobs/
 
 [Install]
 WantedBy=default.target

@@ -105,7 +105,7 @@ The central CLI also contains bounded crawl/backfill/report/enrich/AI commands. 
   backup method, not a raw copy of a database being written.
 - `.env` contains real API keys. Never print it, stage it, commit it or copy values
   into fixtures/logs/prompts.
-- `raw/`, `reports/`, DB backups, `.workforge/`, `.venv/`, `node_modules/` and build
+- `reports/`, DB backups, `.workforge/`, `.venv/`, `node_modules/` and build
   artifacts are runtime/generated data and must stay untracked.
 - Web stays read-only and bound to `127.0.0.1` for the current internal-only release.
 - Web requests do not call LLMs or fetch arbitrary source URLs.

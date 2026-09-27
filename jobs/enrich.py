@@ -338,8 +338,6 @@ def run_enrichment(
                                     post_id=post_id,
                                     subreddit_id=subreddit_id,
                                 )
-                            store.write_raw("post", [post])
-                            store.write_raw("comment", comments)
                             store.set_enrichment_state(
                                 post_id,
                                 "comments",
